@@ -6,8 +6,10 @@ cache/
 .env.local
 .idea/
 .vscode/
-*.log
 dist/
 build/
 coverage/
 .DS_Store
+.cre_build_tmp.js
+*.log
+!cre-workflow/spike-output.log
