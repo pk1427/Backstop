@@ -1,0 +1,9 @@
+[submodule "contracts/lib/aqua"]
+	path = contracts/lib/aqua
+	url = https://github.com/1inch/aqua
+[submodule "contracts/lib/swap-vm"]
+	path = contracts/lib/swap-vm
+	url = https://github.com/1inch/swap-vm
+[submodule "contracts/lib/forge-std"]
+	path = contracts/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
