@@ -1,0 +1,13 @@
+# Node + Foundry ignores
+node_modules/
+out/
+cache/
+.env
+.env.local
+.idea/
+.vscode/
+*.log
+dist/
+build/
+coverage/
+.DS_Store
