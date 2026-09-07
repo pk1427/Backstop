@@ -1,6 +1,6 @@
 'use client';
 
-import {usePrivy, useWallets} from '@privy-io/react-auth';
+import {usePrivy, useWallets, useSendTransaction} from '@privy-io/react-auth';
 import {useState, useEffect} from 'react';
 
 const PRIVY_AUTH_KEY_ID = process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID || '';
@@ -10,6 +10,7 @@ const BACKSTOP_APP_ADDRESS = process.env.NEXT_PUBLIC_BACKSTOP_APP_ADDRESS || '';
 export default function Home() {
   const {ready, authenticated, login, logout, user} = usePrivy();
   const {wallets} = useWallets();
+  const {sendTransaction} = useSendTransaction();
   const [signerAdded, setSignerAdded] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [addingSigner, setAddingSigner] = useState(false);
@@ -45,27 +46,37 @@ export default function Home() {
   };
 
   const testWithinPolicyTx = async () => {
-    if (!BACKSTOP_APP_ADDRESS) {
-      addLog('Set NEXT_PUBLIC_BACKSTOP_APP_ADDRESS in .env.local');
+    const target = BACKSTOP_APP_ADDRESS || embeddedWallet?.address;
+    if (!target) {
+      addLog('No target address available for within-policy tx');
       return;
     }
     try {
-      // This is a placeholder transaction - replace with actual backstop app calldata
-      addLog(`Sending within-policy tx to ${BACKSTOP_APP_ADDRESS}...`);
-      // In a real test, this would call backstopApp.swap() with valid calldata
-      addLog('Within-policy tx would be sent here (implement with actual calldata)');
+      addLog(`Sending within-policy tx to ${target}...`);
+      await sendTransaction({
+        to: target,
+        data: '0x',
+      }, {
+        address: embeddedWallet?.address,
+      });
+      addLog('Within-policy tx succeeded');
     } catch (e: any) {
-      addLog(`Within-policy tx error: ${e.message}`);
+      addLog(`Within-policy tx failed: ${e.message || e}`);
     }
   };
 
   const testOutsidePolicyTx = async () => {
     try {
-      addLog('Sending outside-policy tx to 0x000...0000 (should be rejected)...');
-      // This should be rejected by the policy
-      addLog('Outside-policy tx would be sent here (expect rejection)');
+      addLog('Sending outside-policy tx to 0x0000000000000000000000000000000000000000...');
+      await sendTransaction({
+        to: '0x0000000000000000000000000000000000000000',
+        data: '0x',
+      }, {
+        address: embeddedWallet?.address,
+      });
+      addLog('Outside-policy tx succeeded (unexpected)');
     } catch (e: any) {
-      addLog(`Outside-policy tx rejected: ${e.message}`);
+      addLog(`Outside-policy tx rejected: ${e.message || e}`);
     }
   };
 

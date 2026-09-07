@@ -2,34 +2,51 @@
 
 ## Spike A — Privy Scoped Policy (Accept / Reject)
 
-### Status: BLOCKED — Manual Privy Dashboard Configuration Required
+### Status: BLOCKED — Policy ID Required
 
-### What is implemented
-- Next.js app scaffolded with `@privy-io/react-auth`
-- Embedded wallet creation flow wired
-- Login page displays embedded wallet address
-- `.env.local` stores `NEXT_PUBLIC_PRIVY_APP_ID` and `PRIVY_APP_SECRET`
+### Current state
+- ✅ Next.js app scaffolded with `@privy-io/react-auth`
+- ✅ Embedded wallet creation flow works
+- ✅ Login page displays embedded wallet address: `0x2c5A88a379d3b7b33F9aeeffBB4C137929Aa6B8C`
+- ✅ Auth key ID loaded from `.env.local`: `hr91n1rlyo1fet0i45hyip93`
+- ✅ Transaction buttons wired to `useSendTransaction`:
+  - "Test Within-Policy Tx" → sends to `NEXT_PUBLIC_BACKSTOP_APP_ADDRESS` or self
+  - "Test Outside-Policy Tx" → sends to `0x0000000000000000000000000000000000000000`
+- ✅ Log panel captures accept/reject evidence
 
-### What is NOT yet implemented (blocking)
-Privy policies and scoped session signers require **manual configuration in the Privy Dashboard**:
-1. **App Authorization Key**: Create an authorization key in the Privy Dashboard (Settings → Authorization Keys). Save the private key securely.
-2. **Policy**: Create a policy with:
-   - `allowed_contracts`: `["0xPlaceholder..."]` (the backstop app address)
-   - `max_value`: e.g., `1000000000000000000` (1 ETH or equivalent)
-   - `expiry`: 24h from creation
-3. **Add Signer**: After user login, call `addSigners()` with the authorization key ID and policy ID.
+### What is NOT yet working
+**Policy enforcement is not active** because `NEXT_PUBLIC_PRIVY_POLICY_ID` is empty.
 
-### Exact verification steps (once Dashboard is configured)
-1. User logs in → embedded wallet created
-2. App calls `addSigners()` with the scoped policy
-3. Send a transaction to the allowed contract under the max value → **expect success**
-4. Send a transaction to a different contract or over the max value → **expect rejection**
-5. Both outcomes must be logged/reproducible
+Without a policy ID:
+- `user.addSigners()` is not called automatically
+- No scoped signer is attached to the wallet
+- Transactions are not bounded by contract/max-value/expiry rules
+- "Outside-policy" tx will not be rejected because no policy exists
+
+### Exact verification steps once policy is created
+1. In Privy Dashboard:
+   - Create a policy with:
+     - `allowed_contracts`: `["0xBackstopAppAddress"]` or your test address
+     - `max_value`: e.g., `1000000000000000000` (1 ETH)
+     - `expiry`: 24h
+   - Copy the **policy ID**
+2. Paste into `frontend/.env.local`:
+   ```
+   NEXT_PUBLIC_PRIVY_POLICY_ID=<policy-id>
+   ```
+3. Restart `npm run dev`
+4. Log in → "Add Scoped Signer" should succeed
+5. Click "Test Within-Policy Tx":
+   - Target: allowed contract, under max value
+   - **Expected**: tx succeeds, log shows success
+6. Click "Test Outside-Policy Tx":
+   - Target: disallowed contract or over max value
+   - **Expected**: tx rejected with policy error, log shows rejection
 
 ### Evidence location
-- Frontend scaffold: `frontend/app/providers.tsx`, `frontend/app/page.tsx`
-- Policy setup instructions: this document
-- **Missing**: actual policy ID, authorization key ID, and verified accept/reject traces
+- Frontend code: `frontend/app/page.tsx`
+- Env vars: `frontend/.env.local`
+- **Missing**: policy ID and verified accept/reject traces
 
 ---
 
@@ -133,7 +150,7 @@ Privy policies and scoped session signers require **manual configuration in the 
 
 | Spike | Status | Evidence location | Notes |
 |-------|--------|-------------------|-------|
-| A — Privy policy | **BLOCKED** | `frontend/app/providers.tsx`, `frontend/app/page.tsx` | Requires manual Privy Dashboard config: app auth key + policy creation. Code is ready; verification blocked pending Dashboard setup. |
+| A — Privy policy | **BLOCKED** | `frontend/app/page.tsx`, `frontend/.env.local` | Frontend and tx buttons are ready. Blocked by missing `NEXT_PUBLIC_PRIVY_POLICY_ID`. Create policy in Privy Dashboard and paste ID to unblock. |
 | B — CRE handlerInTee | **PASS** | `cre-workflow/spike-output.log`, forwarder: `0xF8344CFd5c43616a4366C34E3EEE75af79a74482` (Ethereum Sepolia) | Simulation output captured. Forwarder address from official Chainlink CRE docs. |
 | C — Aqua ship/pull/push | **PASS** | `contracts/test/Phase1Spikes.t.sol:183` | Atomic swap verified on fork. USDC pulled, WETH pushed, balances correct. |
 | D — Liquidation callback | **PASS** | `contracts/test/Phase1Spikes.t.sol:218` | Mock Aave liquidation + WETH push atomic in same transaction. Borrower position updated correctly. |
@@ -142,6 +159,6 @@ Privy policies and scoped session signers require **manual configuration in the 
 
 ## Next Steps
 
-1. **Spike A**: Complete Privy Dashboard setup (auth key + policy), then run the frontend and verify accept/reject traces.
-2. **Spike B**: Consider deploying a scratch consumer contract to test real onchain delivery (vs. simulation only).
-3. **Spike C/D**: These are fully verified. Proceed to Phase 2 contract work once Spike A is unblocked.
+1. **Spike A**: Create policy in Privy Dashboard → paste policy ID into `frontend/.env.local` → restart dev server → verify accept/reject via UI logs
+2. **Spike B**: Consider deploying scratch consumer contract for real onchain delivery test
+3. **Spike C/D**: Fully verified. Ready for Phase 2 contract work once Spike A is unblocked.
