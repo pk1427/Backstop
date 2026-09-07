@@ -4,6 +4,7 @@
 staging-settings:
   user-workflow:
     workflow-name: "hello-confidential-staging"
+    deployment-registry: "private"
   workflow-artifacts:
     workflow-path: "./main.ts"
     config-path: "./config.staging.json"
@@ -13,6 +14,7 @@ staging-settings:
 production-settings:
   user-workflow:
     workflow-name: "hello-confidential-production"
+    deployment-registry: "private"
   workflow-artifacts:
     workflow-path: "./main.ts"
     config-path: "./config.production.json"

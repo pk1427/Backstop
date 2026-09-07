@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {Aqua} from "@aqua/src/Aqua.sol";
 import {AquaApp} from "@aqua/src/AquaApp.sol";
 import {IAqua} from "@aqua/src/interfaces/IAqua.sol";
+import {QuoteRegistry} from "./QuoteRegistry.sol";
 
 /// @title LiquidationBackstopApp - Custom AquaApp for confidential liquidation backstop
 /// @notice Maker ships USDC (output leg). Taker pulls USDC, calls liquidation, pushes WETH (input leg) back to maker.
@@ -37,10 +38,12 @@ contract LiquidationBackstopApp is AquaApp {
         bool    valid;
     }
 
-    // Stubbed quote source for Phase 2 (real QuoteRegistry with CRE auth is Phase 3)
-    mapping(bytes32 => Quote) public quotes;
+    // Production quote source: CRE-delivered QuoteRegistry
+    QuoteRegistry public immutable quoteRegistry;
 
-    constructor(IAqua aqua_) AquaApp(aqua_) {}
+    constructor(IAqua aqua_, QuoteRegistry quoteRegistry_) AquaApp(aqua_) {
+        quoteRegistry = quoteRegistry_;
+    }
 
     /// @notice Execute a swap with quote validation
     /// @param strategyHash The hash of the shipped strategy
@@ -48,20 +51,24 @@ contract LiquidationBackstopApp is AquaApp {
     /// @param quoteId The quote ID to validate against
     /// @param takerData Arbitrary data passed to the callback (e.g., liquidation params)
     function swap(bytes32 strategyHash, Strategy calldata strategy, bytes32 quoteId, bytes calldata takerData) external nonReentrantStrategy(strategy.maker, strategyHash) returns (uint256) {
-        // Validate quote
-        Quote memory quote = quotes[quoteId];
-        require(quote.valid, "Quote not valid");
-        require(block.timestamp <= quote.expiry, "Quote expired");
+        // Read quote from production QuoteRegistry
+        QuoteRegistry.Quote memory registryQuote = quoteRegistry.getQuote(quoteId);
 
-        uint256 quotedSize = quote.size;
+        // Validate quote exists and is executable
+        require(registryQuote.execute, "Quote not executable");
+
+        // Validate quote expiry
+        require(block.timestamp <= registryQuote.expiry, "Quote expired");
+
+        uint256 quotedSize = registryQuote.size;
         require(quotedSize <= strategy.maxTrade, "Quote size exceeds maxTrade");
 
         // Validate price within discount bounds
         // price is expressed as a percentage: e.g., 100 = 1% discount, 500 = 5% discount
-        require(quote.price >= strategy.minDiscountBps, "Price below min discount");
-        require(quote.price <= strategy.maxDiscountBps, "Price above max discount");
+        require(registryQuote.price >= strategy.minDiscountBps, "Price below min discount");
+        require(registryQuote.price <= strategy.maxDiscountBps, "Price above max discount");
 
-        emit QuoteValidated(strategyHash, quoteId, quote.price, quotedSize);
+        emit QuoteValidated(strategyHash, quoteId, registryQuote.price, quotedSize);
 
         // Pull USDC (maker's output leg) from maker to taker
         AQUA.pull(strategy.maker, strategyHash, strategy.tokenOut, quotedSize, msg.sender);
@@ -74,23 +81,6 @@ contract LiquidationBackstopApp is AquaApp {
 
         emit SwapExecuted(strategyHash, strategy.maker, quotedSize, quotedSize);
         return quotedSize;
-    }
-
-    /// @notice Stub function to set a quote (Phase 2 only - Phase 3 will use CRE forwarder)
-    function setQuote(bytes32 quoteId, uint256 price, uint256 size, uint64 expiry) external {
-        // In Phase 2, we allow any caller to set quotes for testing
-        // In Phase 3, this will be restricted to the CRE forwarder only
-        quotes[quoteId] = Quote({
-            price: price,
-            size: size,
-            expiry: expiry,
-            valid: true
-        });
-    }
-
-    /// @notice Invalidate a quote
-    function invalidateQuote(bytes32 quoteId) external {
-        quotes[quoteId].valid = false;
     }
 }
 

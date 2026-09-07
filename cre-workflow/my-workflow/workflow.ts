@@ -5,7 +5,7 @@ import {
 	text,
 	type TeeRuntime,
 } from '@chainlink/cre-sdk'
-import { encodeAbiParameters, parseAbiParameters } from 'viem'
+import { encodeAbiParameters, parseAbiParameters, keccak256, toHex } from 'viem'
 import { z } from 'zod'
 
 // ─── Config Schema ──────────────────────────────────────────
@@ -14,62 +14,87 @@ export const configSchema = z.object({
 	url: z.string(),
 	secretId: z.string(),
 	scoreThreshold: z.number(),
+	receiverAddress: z.string(),
+	chainSelector: z.string(),
+	gasLimit: z.number(),
 })
 type Config = z.infer<typeof configSchema>
 
-// ─── Logic to be executed over confidential data ────────────
-// Some logic needs to be computed over sensitive data while preserving the
-// confidentiality of that data from node operators: risk thresholds, API
-// credentials, centralised exchange stablecoin reserves for reasoning, identity
-// details. Leaking this data could have adverse effects, including enabling
-// front-running attacks, exposing sensitive financial information, and
-// compromising individual privacy.
-//
-// Note what is and is not confidential here: a confidential workflow, despite
-// running inside the enclave, is part of the binary the Workflow DON provides to
-// the enclave — so the binary, including this logic, is revealed. What the
-// enclave keeps confidential is the data this logic computes over: Vault DON
-// secrets, the request and response payloads of HTTP calls made from the
-// enclave, and other intermediate values.
-//
-// Keep it deterministic for a given input — the enclave result is attested and
-// verified by DON consensus before the workflow completes.
-const scoreResponse = (body: string): number => {
-	let score = 0
-	for (let i = 0; i < body.length; i++) {
-		score = (score + body.charCodeAt(i)) % 1000
+// ─── Quote type (ABI-encoded and delivered onchain) ─────────
+type Quote = {
+	quoteId: string
+	price: bigint
+	size: bigint
+	expiry: bigint
+	execute: boolean
+}
+
+// ─── Private discount curve ─────────────────────────────────
+// These parameters are fetched from CRE secrets inside the TEE.
+// They must NEVER appear in logs, workflow source constants, or onchain state.
+type PrivateCurve = {
+	minDiscountBps: number
+	maxDiscountBps: number
+	riskAppetite: number
+}
+
+const loadPrivateCurve = (secretsJson: string): PrivateCurve => {
+	let parsed: Record<string, string>
+	try {
+		parsed = JSON.parse(secretsJson) as Record<string, string>
+	} catch {
+		// If the secret is a plain string (e.g., simulation placeholder), use defaults
+		parsed = { MIN_DISCOUNT_BPS: '100', MAX_DISCOUNT_BPS: '500', RISK_APPETITE: '0.5' }
 	}
-	return score
+
+	const minDiscountBps = Number(parsed['MIN_DISCOUNT_BPS'])
+	const maxDiscountBps = Number(parsed['MAX_DISCOUNT_BPS'])
+	const riskAppetite = Number(parsed['RISK_APPETITE'])
+
+	if (!Number.isFinite(minDiscountBps) || !Number.isFinite(maxDiscountBps) || !Number.isFinite(riskAppetite)) {
+		throw new Error('Invalid private curve secrets')
+	}
+
+	return { minDiscountBps, maxDiscountBps, riskAppetite }
+}
+
+// Deterministic linear interpolation: healthier asset → tighter discount,
+// more distressed asset → wider discount. riskAppetite scales the slope.
+const computeDiscountBps = (healthFactor: number, curve: PrivateCurve): number => {
+	const clampedHealth = Math.max(0, Math.min(1, healthFactor))
+	const slope = (curve.maxDiscountBps - curve.minDiscountBps) * curve.riskAppetite
+	const discount = curve.minDiscountBps + slope * (1 - clampedHealth)
+	return Math.floor(discount)
 }
 
 // ─── TEE Cron Callback ──────────────────────────────────────
-// Receives a `TeeRuntime`, not a `Runtime`. Everything here runs inside the
-// enclave until we explicitly cross back with `usingTheDons()`.
 export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 	const config = runtime.config
 
-	// ── Step 2: Fetch a secret inside the enclave ──
-	// The Vault DON releases this secret only into an attested enclave, and it is
-	// decrypted at the moment `getSecret()` runs. There is nothing to declare
-	// upfront (unlike Confidential HTTP's `vaultDonSecrets`).
-	const apiToken = runtime.getSecret({ id: config.secretId }).result().value
+	// ── Step 1: Fetch private maker curve inside the enclave ──
+	// The Vault DON releases these secrets only into an attested enclave.
+	const secretsJson = runtime.getSecret({ id: config.secretId }).result().value
+	const curve = loadPrivateCurve(secretsJson)
 
-	// ── Step 3: Make a capability call from inside the enclave ──
-	// `HTTPClient.sendRequest()` has a `TeeRuntime` overload, so passing the TEE
-	// runtime executes the request from inside the enclave, keeping the request
-	// and response payloads confidential from node operators. The Workflow DON
-	// offers consensus verification of enclave attestations, proving the integrity
-	// of the logic executed within the enclave.
-	//
-	// Note: do NOT reach for `ConfidentialHTTPClient` here — it has no
-	// `TeeRuntime` overload and is not meant to be called from a TEE handler.
+	let apiToken = ''
+	try {
+		const parsed = JSON.parse(secretsJson) as Record<string, string>
+		apiToken = parsed['API_TOKEN'] ?? ''
+	} catch {
+		// Plain string secret - use it directly as the token
+		apiToken = secretsJson
+	}
+
+	// ── Step 2: Fetch public liquidation inputs ──
+	// In production, these come from an authenticated API or onchain read.
+	// For this phase, we use the configured HTTP endpoint.
 	const response = new cre.capabilities.HTTPClient()
 		.sendRequest(runtime, {
 			url: config.url,
 			method: 'GET',
-			multiHeaders: {
-				Authorization: { values: [`Bearer ${apiToken}`] },
-			},
+		multiHeaders: {
+			Authorization: { values: [`Bearer ${apiToken}`] },
+		},
 		})
 		.result()
 
@@ -79,33 +104,42 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 
 	const body = text(response)
 
-	// The default endpoint echoes the request headers back, so we can confirm the
-	// secret really was injected inside the enclave — as a boolean, never by
-	// logging the token itself. Drop this once `url` points at a real API.
-	const secretReachedApi = body.includes(apiToken)
+	// ── Step 3: Deterministic quote calculation inside TEE ──
+	// Public inputs parsed from the authenticated response.
+	const healthFactor = 0.75 // placeholder parsing from body
+	const collateralPrice = 1_000_000_000n // placeholder parsing from body
+	const requestedSize = 1_000_000_000_000_000_000n // placeholder parsing from body
 
-	// Decision logic executed over the confidential response payload.
-	const score = scoreResponse(body)
-	const verdict = score >= config.scoreThreshold ? 'APPROVE' : 'REJECT'
+	// Private curve influences the quote price. The curve itself stays confidential.
+	const discountBps = computeDiscountBps(healthFactor, curve)
 
-	// ⚠️ Logs should be used for simulations only, and MUST be removed before
-	// deploying to production to preserve the confidentiality offered by enclaves.
-	// Avoid logging inside the enclave in general — sensitive or not.
-	runtime.log(`Enclave computation complete. verdict=${verdict}`)
+	// Enforce strategy-level bounds inside the workflow so the quote is always
+	// compatible with the onchain immutable strategy.
+	const minDiscountBps = 100
+	const maxDiscountBps = 500
+	const boundedDiscount = Math.max(minDiscountBps, Math.min(maxDiscountBps, discountBps))
 
-	// ── Step 4: Cross back to the DON for anything that needs consensus ──
-	// `usingTheDons()` returns a regular `Runtime`. Anything passed into a
-	// capability call on it executes on Workflow DON nodes and is NO LONGER
-	// confidential — so we cross over the verdict and score only, never the
-	// secret or the raw response body.
-	const donRuntime = runtime.usingTheDons()
+	// Build the application payload.
+	const quoteId = keccak256(toHex(encodeAbiParameters(parseAbiParameters('uint256 timestamp, uint256 size, uint256 discount'), [BigInt(Math.floor(Date.now() / 1000)), requestedSize, BigInt(boundedDiscount)])))
+	const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600)
+
+	const quote: Quote = {
+		quoteId,
+		price: BigInt(boundedDiscount),
+		size: requestedSize,
+		expiry,
+		execute: true,
+	}
 
 	const encodedPayload = encodeAbiParameters(
-		parseAbiParameters('string verdict, uint256 score'),
-		[verdict, BigInt(score)],
+		parseAbiParameters('bytes32, uint256, uint256, uint64, bool'),
+		[quote.quoteId as `0x${string}`, quote.price, quote.size, quote.expiry, quote.execute],
 	)
 
-	donRuntime
+	// ── Step 4: Cross back to the DON and generate a signed report ──
+	const donRuntime = runtime.usingTheDons()
+
+	const report = donRuntime
 		.report({
 			encodedPayload: hexToBase64(encodedPayload),
 			encoderName: 'evm',
@@ -114,10 +148,27 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 		})
 		.result()
 
-	// The signed report is now a normal CRE report. To deliver it on-chain, pass
-	// it to `evmClient.writeReport(donRuntime, report)` — see the Keeper Bot or
-	// Event Reactor templates for the full write path.
-	return `${verdict} (score: ${score}, secret reached API: ${secretReachedApi})`
+	// ── Step 5: Deliver the signed report onchain ──
+	if (config.receiverAddress && config.chainSelector && config.gasLimit) {
+		const evmClient = new cre.capabilities.EVMClient(BigInt(config.chainSelector))
+
+		try {
+			const writeResult = evmClient
+				.writeReport(donRuntime, {
+					receiver: config.receiverAddress,
+					report,
+					gasConfig: { gasLimit: BigInt(config.gasLimit) },
+				} as any)
+				.result()
+
+			runtime.log(`Report delivered: txStatus=${writeResult.txStatus}`)
+		} catch (e: any) {
+			runtime.log(`writeReport error: ${e.message}`)
+			throw e
+		}
+	}
+
+	return `Quote generated: discount=${boundedDiscount} bps`
 }
 
 // ─── Workflow Init ──────────────────────────────────────────
@@ -125,18 +176,9 @@ export function initWorkflow(config: Config) {
 	const cronTrigger = new cre.capabilities.CronCapability()
 
 	return [
-		// ── Step 1: Register a TEE handler ──
-		// `cre.handlerInTee` instead of `cre.handler`. The third argument is a
-		// `TeeConstraint` describing which enclaves this handler will accept.
-		//
-		// Alternatives:
-		//   {}                        — any registered TEE, any region
-		//   { regions: ['us-west-2'] } — any TEE, restricted to a region
-		//
-		// AWS Nitro in us-west-2 is currently the only registered TEE type and
-		// region; check your SDK version if you expect otherwise.
 		cre.handlerInTee(cronTrigger.trigger({ schedule: config.schedule }), onCronTrigger, [
 			{ tee: 'nitro', regions: ['us-west-2'] },
 		]),
 	]
 }
+

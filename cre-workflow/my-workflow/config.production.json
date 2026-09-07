@@ -2,5 +2,8 @@
   "schedule": "0 */5 * * * *",
   "url": "https://YOUR_AUTHENTICATED_API_ENDPOINT",
   "secretId": "API_TOKEN",
-  "scoreThreshold": 500
+  "scoreThreshold": 500,
+  "receiverAddress": "0xe39e8ec1e77bc9f9e36e552105362f9d5bee0f95",
+  "chainSelector": "16015286601757825753",
+  "gasLimit": 1000000
 }

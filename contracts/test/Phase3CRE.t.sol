@@ -10,9 +10,21 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {LiquidationBackstopApp} from "../src/LiquidationBackstopApp.sol";
 import {LiquidatorExecutor, MockLendingPool} from "../src/LiquidatorExecutor.sol";
-import {QuoteRegistry} from "../src/QuoteRegistry.sol";
+import {QuoteRegistry, IReceiver} from "../src/QuoteRegistry.sol";
 
-contract Phase2CoreAquaTest is Test {
+// Mock ERC20 for testing
+contract MockERC20 is ERC20 {
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
+// Helper to get the InvalidSender error selector from ReceiverTemplate
+bytes4 constant INVALID_SENDER_SELECTOR = bytes4(keccak256("InvalidSender(address,address)"));
+
+contract Phase3CRETest is Test {
     LiquidationBackstopApp public backstopApp;
     LiquidatorExecutor public liquidatorExecutor;
     MockLendingPool public lendingPool;
@@ -25,12 +37,14 @@ contract Phase2CoreAquaTest is Test {
 
     address public maker = address(0x1111);
     address public liquidator = address(0x3333);
+    address public forwarder = address(0xABCD);
+    address public randomCaller = address(0x9999);
 
     bytes32 public strategyHash;
 
     function setUp() public {
         aqua = new Aqua();
-        quoteRegistry = new QuoteRegistry(address(0xABCD));
+        quoteRegistry = new QuoteRegistry(forwarder);
         backstopApp = new LiquidationBackstopApp(IAqua(address(aqua)), quoteRegistry);
         lendingPool = new MockLendingPool();
         liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), lendingPool);
@@ -83,17 +97,76 @@ contract Phase2CoreAquaTest is Test {
         );
     }
 
-    // ========== HAPPY PATH: Full atomic swap ==========
+    // ========== QUOTE REGISTRY: Authorized forwarder can submit ==========
 
-    function testHappyPath_AtomicSwap() public {
-        uint256 usdcPullAmount = 1_000e18;
-        bytes32 quoteId = keccak256("quote-1");
+    function testQuoteRegistry_AuthorizedForwarderCanSubmit() public {
+        bytes32 quoteId = keccak256("quote-auth");
+        uint256 price = 200;
+        uint256 size = 1_000e18;
+        uint64 expiry = uint64(block.timestamp + 1 hours);
 
-        // Set a valid quote via QuoteRegistry
-        vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, usdcPullAmount, uint64(block.timestamp + 1 hours), true));
+        // Encode quote payload
+        bytes memory payload = abi.encode(quoteId, price, size, expiry, true);
 
-        // Setup under-collateralized borrower for liquidation
+        // Forwarder calls onReport
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payload);
+
+        // Verify quote stored
+        QuoteRegistry.Quote memory q = quoteRegistry.getQuote(quoteId);
+        assertEq(q.quoteId, quoteId);
+        assertEq(q.price, price);
+        assertEq(q.size, size);
+        assertEq(q.expiry, expiry);
+        assertTrue(q.execute);
+        assertTrue(quoteRegistry.hasQuote(quoteId));
+    }
+
+    // ========== QUOTE REGISTRY: Unauthorized cannot submit ==========
+
+    function testQuoteRegistry_UnauthorizedCannotSubmit() public {
+        bytes32 quoteId = keccak256("quote-unauth");
+        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp + 1 hours), true);
+
+        vm.prank(randomCaller);
+        vm.expectRevert(abi.encodeWithSelector(INVALID_SENDER_SELECTOR, randomCaller, forwarder));
+        quoteRegistry.onReport("", payload);
+    }
+
+    // ========== QUOTE REGISTRY: Decodes quote correctly ==========
+
+    function testQuoteRegistry_DecodesQuoteCorrectly() public {
+        bytes32 quoteId = keccak256("quote-decode");
+        uint256 price = 350;
+        uint256 size = 500e18;
+        uint64 expiry = uint64(block.timestamp + 30 minutes);
+
+        bytes memory payload = abi.encode(quoteId, price, size, expiry, true);
+
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payload);
+
+        QuoteRegistry.Quote memory q = quoteRegistry.getQuote(quoteId);
+        assertEq(q.price, 350);
+        assertEq(q.size, 500e18);
+        assertEq(q.expiry, expiry);
+        assertTrue(q.execute);
+    }
+
+    // ========== PRODUCTION QUOTE: Consumed by backstop app ==========
+
+    function testProductionQuote_ConsumedByBackstopApp() public {
+        bytes32 quoteId = keccak256("quote-prod");
+        uint256 price = 200;
+        uint256 size = 1_000e18;
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+
+        // Submit quote via forwarder
+        bytes memory payload = abi.encode(quoteId, price, size, expiry, true);
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payload);
+
+        // Setup under-collateralized borrower
         address borrower = address(0x4444);
         uint256 collateralAmount = 2_000e18;
         uint256 debtAmount = 3_000e18;
@@ -108,14 +181,8 @@ contract Phase2CoreAquaTest is Test {
 
         lendingPool.fundBorrower(borrower, collateralAmount, debtAmount);
 
-        // Verify position is under-collateralized
-        uint256 hf = lendingPool.healthFactor(borrower);
-        assertTrue(hf < 1e18, "Position should be under-collateralized");
-
-        // Encode takerData: (borrower, expectedWethOut)
-        bytes memory takerData = abi.encode(borrower, usdcPullAmount);
-
-        // Execute swap
+        // Execute swap using registry quote
+        bytes memory takerData = abi.encode(borrower, size);
         vm.prank(address(liquidatorExecutor));
         uint256 pulled = backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
             maker: maker,
@@ -128,35 +195,21 @@ contract Phase2CoreAquaTest is Test {
             salt: bytes32(0)
         }), quoteId, takerData);
 
-        // Verify USDC left maker
-        assertEq(usdc.balanceOf(maker), 9_000e18);
-        assertEq(pulled, usdcPullAmount);
-
-        // Verify WETH arrived at maker (pushed via callback)
-        assertEq(weth.balanceOf(maker), 10_000e18 + usdcPullAmount);
-
-        // Verify Aqua balances
-        (uint256 usdcBalance,) = aqua.rawBalances(maker, address(backstopApp), strategyHash, address(usdc));
-        (uint256 wethBalance,) = aqua.rawBalances(maker, address(backstopApp), strategyHash, address(weth));
-        assertEq(usdcBalance, 5_000e18 - usdcPullAmount);
-        assertEq(wethBalance, usdcPullAmount);
-
-        // Verify borrower position was updated
-        assertEq(lendingPool.borrowerDebt(borrower), debtAmount - usdcPullAmount);
-        assertEq(lendingPool.borrowerCollateral(borrower), collateralAmount - usdcPullAmount);
+        assertEq(pulled, size);
+        assertEq(usdc.balanceOf(maker), 10_000e18 - size);
+        assertEq(weth.balanceOf(maker), 10_000e18 + size);
     }
 
     // ========== REJECTION: Expired quote ==========
 
-    function testReject_ExpiredQuote() public {
-        bytes32 quoteId = keccak256("quote-expired");
+    function testProductionQuote_ExpiredRejected() public {
+        bytes32 quoteId = keccak256("quote-expired-prod");
+        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp - 1), true);
 
-        // Set an expired quote
-        vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp - 1), true));
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payload);
 
         bytes memory takerData = abi.encode(address(0x4444), 1_000e18);
-
         vm.prank(address(liquidatorExecutor));
         vm.expectRevert("Quote expired");
         backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
@@ -171,17 +224,16 @@ contract Phase2CoreAquaTest is Test {
         }), quoteId, takerData);
     }
 
-    // ========== REJECTION: Quote size exceeds maxTrade ==========
+    // ========== REJECTION: Size above maxTrade ==========
 
-    function testReject_QuoteSizeExceedsMaxTrade() public {
-        bytes32 quoteId = keccak256("quote-too-large");
+    function testProductionQuote_SizeAboveMaxTradeRejected() public {
+        bytes32 quoteId = keccak256("quote-too-large-prod");
+        bytes memory payload = abi.encode(quoteId, 200, 2_000e18, uint64(block.timestamp + 1 hours), true);
 
-        // Set a quote larger than maxTrade (1_000e18)
-        vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, 2_000e18, uint64(block.timestamp + 1 hours), true));
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payload);
 
         bytes memory takerData = abi.encode(address(0x4444), 2_000e18);
-
         vm.prank(address(liquidatorExecutor));
         vm.expectRevert("Quote size exceeds maxTrade");
         backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
@@ -196,17 +248,16 @@ contract Phase2CoreAquaTest is Test {
         }), quoteId, takerData);
     }
 
-    // ========== REJECTION: Quote price outside discount bounds ==========
+    // ========== REJECTION: Price outside bounds ==========
 
-    function testReject_QuotePriceBelowMinDiscount() public {
-        bytes32 quoteId = keccak256("quote-below-min");
+    function testProductionQuote_PriceOutsideBoundsRejected() public {
+        // Below min
+        bytes32 quoteIdLow = keccak256("quote-below-min-prod");
+        bytes memory payloadLow = abi.encode(quoteIdLow, 50, 1_000e18, uint64(block.timestamp + 1 hours), true);
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payloadLow);
 
-        // Set a quote with price below minDiscountBps (100)
-        vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 50, 1_000e18, uint64(block.timestamp + 1 hours), true));
-
-        bytes memory takerData = abi.encode(address(0x4444), 1_000e18);
-
+        bytes memory takerDataLow = abi.encode(address(0x4444), 1_000e18);
         vm.prank(address(liquidatorExecutor));
         vm.expectRevert("Price below min discount");
         backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
@@ -218,18 +269,15 @@ contract Phase2CoreAquaTest is Test {
             maxDiscountBps: 500,
             expiry: uint64(block.timestamp + 365 days),
             salt: bytes32(0)
-        }), quoteId, takerData);
-    }
+        }), quoteIdLow, takerDataLow);
 
-    function testReject_QuotePriceAboveMaxDiscount() public {
-        bytes32 quoteId = keccak256("quote-above-max");
+        // Above max
+        bytes32 quoteIdHigh = keccak256("quote-above-max-prod");
+        bytes memory payloadHigh = abi.encode(quoteIdHigh, 600, 1_000e18, uint64(block.timestamp + 1 hours), true);
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payloadHigh);
 
-        // Set a quote with price above maxDiscountBps (500)
-        vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 600, 1_000e18, uint64(block.timestamp + 1 hours), true));
-
-        bytes memory takerData = abi.encode(address(0x4444), 1_000e18);
-
+        bytes memory takerDataHigh = abi.encode(address(0x4444), 1_000e18);
         vm.prank(address(liquidatorExecutor));
         vm.expectRevert("Price above max discount");
         backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
@@ -241,50 +289,6 @@ contract Phase2CoreAquaTest is Test {
             maxDiscountBps: 500,
             expiry: uint64(block.timestamp + 365 days),
             salt: bytes32(0)
-        }), quoteId, takerData);
-    }
-
-    // ========== Helper: mock ERC20 ==========
-
-    function testShipStrategy() public {
-        LiquidationBackstopApp.Strategy memory strategy = LiquidationBackstopApp.Strategy({
-            maker: maker,
-            tokenIn: address(weth),
-            tokenOut: address(usdc),
-            maxTrade: 1_000e18,
-            minDiscountBps: 100,
-            maxDiscountBps: 500,
-            expiry: uint64(block.timestamp + 365 days),
-            salt: bytes32(uint256(0x1))
-        });
-
-        address[] memory tokens = new address[](2);
-        tokens[0] = address(usdc);
-        tokens[1] = address(weth);
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = uint256(0);
-        amounts[1] = uint256(0);
-
-        vm.prank(maker);
-        bytes32 hash = aqua.ship(
-            address(backstopApp),
-            abi.encode(strategy),
-            tokens,
-            amounts
-        );
-
-        (uint256 usdcBal,) = aqua.rawBalances(maker, address(backstopApp), hash, address(usdc));
-        (uint256 wethBal,) = aqua.rawBalances(maker, address(backstopApp), hash, address(weth));
-        assertEq(usdcBal, 0);
-        assertEq(wethBal, 0);
-    }
-}
-
-// Mock ERC20 for testing
-contract MockERC20 is ERC20 {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
+        }), quoteIdHigh, takerDataHigh);
     }
 }

@@ -21,7 +21,7 @@ type FakeTeeRuntimeOptions = {
 	body?: string
 }
 
-const makeFakeTeeRuntime = ({ statusCode = 200, body = 'hello' }: FakeTeeRuntimeOptions = {}) => {
+const makeFakeTeeRuntime = ({ statusCode = 200, body = 'hello', secret = API_TOKEN }: FakeTeeRuntimeOptions = {}) => {
 	const capturedHeaders: string[] = []
 	const reports: unknown[] = []
 	const logs: string[] = []
@@ -29,7 +29,7 @@ const makeFakeTeeRuntime = ({ statusCode = 200, body = 'hello' }: FakeTeeRuntime
 	const runtime = {
 		config: makeConfig(),
 		getSecret: (request: { id?: string }) => ({
-			result: () => ({ id: request.id, value: API_TOKEN }),
+			result: () => ({ id: request.id, value: secret }),
 		}),
 		callCapability: ({ payload }: { payload: { multiHeaders?: Record<string, unknown> } }) => {
 			const auth = payload.multiHeaders?.Authorization as { values?: string[] } | undefined
@@ -62,19 +62,35 @@ describe('onCronTrigger', () => {
 		expect(capturedHeaders).toEqual([`Bearer ${API_TOKEN}`])
 	})
 
-	test('confirms the secret reached the API when the response echoes it back', () => {
-		const { runtime } = makeFakeTeeRuntime({ body: `{"authorization":"Bearer ${API_TOKEN}"}` })
+	test('generates a quote and returns the discount in bps', () => {
+		const { runtime } = makeFakeTeeRuntime()
 
-		expect(onCronTrigger(runtime)).toContain('secret reached API: true')
+		expect(onCronTrigger(runtime)).toContain('Quote generated: discount=150 bps')
 	})
 
-	test('reports the secret did not reach the API when it is absent', () => {
-		const { runtime } = makeFakeTeeRuntime({ body: '{"authorization":"Bearer other"}' })
+	test('private curve parameters affect the computed discount', () => {
+		const tightCurve = JSON.stringify({ MIN_DISCOUNT_BPS: '200', MAX_DISCOUNT_BPS: '300', RISK_APPETITE: '0.5' })
+		const { runtime: tightRuntime } = makeFakeTeeRuntime({ secret: tightCurve })
+		const tightDiscount = onCronTrigger(tightRuntime)
 
-		expect(onCronTrigger(runtime)).toContain('secret reached API: false')
+		const wideCurve = JSON.stringify({ MIN_DISCOUNT_BPS: '100', MAX_DISCOUNT_BPS: '500', RISK_APPETITE: '1.0' })
+		const { runtime: wideRuntime } = makeFakeTeeRuntime({ secret: wideCurve })
+		const wideDiscount = onCronTrigger(wideRuntime)
+
+		expect(tightDiscount).toContain('Quote generated: discount=')
+		expect(wideDiscount).toContain('Quote generated: discount=')
+
+		const tightBps = Number(tightDiscount.match(/discount=(\d+) bps/)?.[1])
+		const wideBps = Number(wideDiscount.match(/discount=(\d+) bps/)?.[1])
+
+		expect(tightBps).not.toBe(wideBps)
+		expect(tightBps).toBeGreaterThanOrEqual(200)
+		expect(tightBps).toBeLessThanOrEqual(300)
+		expect(wideBps).toBeGreaterThanOrEqual(100)
+		expect(wideBps).toBeLessThanOrEqual(500)
 	})
 
-	test('crosses back to the DON to generate a report', () => {
+	test('encodes the quote payload in the DON report', () => {
 		const { runtime, reports } = makeFakeTeeRuntime()
 
 		onCronTrigger(runtime)
@@ -85,20 +101,6 @@ describe('onCronTrigger', () => {
 			signingAlgo: 'ecdsa',
 			hashingAlgo: 'keccak256',
 		})
-	})
-
-	test('APPROVEs when the confidential score clears the threshold', () => {
-		// 'zzzzzzzz' sums to 976, above the 500 threshold.
-		const { runtime } = makeFakeTeeRuntime({ body: 'zzzzzzzz' })
-
-		expect(onCronTrigger(runtime)).toContain('APPROVE')
-	})
-
-	test('REJECTs when the confidential score is below the threshold', () => {
-		// 'a' sums to 97, below the 500 threshold.
-		const { runtime } = makeFakeTeeRuntime({ body: 'a' })
-
-		expect(onCronTrigger(runtime)).toContain('REJECT')
 	})
 
 	test('throws on a non-2xx response and never reaches the DON', () => {

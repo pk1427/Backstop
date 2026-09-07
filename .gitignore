@@ -11,5 +11,6 @@ build/
 coverage/
 .DS_Store
 .cre_build_tmp.js
+*.wasm
 *.log
 !cre-workflow/spike-output.log
