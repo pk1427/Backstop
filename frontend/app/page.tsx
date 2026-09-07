@@ -6,6 +6,7 @@ import {useState, useEffect} from 'react';
 const PRIVY_AUTH_KEY_ID = process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID || '';
 const PRIVY_POLICY_ID = process.env.NEXT_PUBLIC_PRIVY_POLICY_ID || '';
 const BACKSTOP_APP_ADDRESS = process.env.NEXT_PUBLIC_BACKSTOP_APP_ADDRESS || '';
+const ALLOWED_ADDRESS = process.env.NEXT_PUBLIC_ALLOWED_ADDRESS || '';
 
 export default function Home() {
   const {ready, authenticated, login, logout, user} = usePrivy();
@@ -46,7 +47,7 @@ export default function Home() {
   };
 
   const testWithinPolicyTx = async () => {
-    const target = BACKSTOP_APP_ADDRESS || embeddedWallet?.address;
+    const target = BACKSTOP_APP_ADDRESS || ALLOWED_ADDRESS || embeddedWallet?.address;
     if (!target) {
       addLog('No target address available for within-policy tx');
       return;
@@ -67,9 +68,10 @@ export default function Home() {
 
   const testOutsidePolicyTx = async () => {
     try {
-      addLog('Sending outside-policy tx to 0x0000000000000000000000000000000000000000...');
+      const target = embeddedWallet?.address || '0x1111111111111111111111111111111111111111';
+      addLog(`Sending outside-policy tx to ${target}...`);
       await sendTransaction({
-        to: '0x0000000000000000000000000000000000000000',
+        to: target,
         data: '0x',
       }, {
         address: embeddedWallet?.address,
@@ -121,6 +123,9 @@ export default function Home() {
               </p>
               <p className="text-sm text-zinc-500">
                 Policy ID: {PRIVY_POLICY_ID ? `${PRIVY_POLICY_ID.slice(0, 8)}...` : 'not set — create in Privy Dashboard'}
+              </p>
+              <p className="text-sm text-zinc-500">
+                Allowed address: {ALLOWED_ADDRESS ? `${ALLOWED_ADDRESS.slice(0, 10)}...` : 'not set'}
               </p>
               <p className="text-sm text-zinc-500">
                 Signer added: {signerAdded ? 'yes' : 'no'}
