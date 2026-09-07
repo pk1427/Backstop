@@ -3,10 +3,10 @@ src = "src"
 out = "out"
 libs = ["lib"]
 remappings = [
-    "@aqua/=lib/aqua/src/",
-    "@swap-vm/=lib/swap-vm/src/",
-    "@1inch/solidity-utils/=lib/aqua/lib/@1inch/solidity-utils/src/",
-    "@openzeppelin/contracts/=lib/aqua/lib/@openzeppelin/contracts/",
+    "@aqua/=lib/aqua/",
+    "@swap-vm/=lib/swap-vm/",
+    "@1inch/solidity-utils/=lib/aqua/node_modules/@1inch/solidity-utils/",
+    "@openzeppelin/contracts/=lib/aqua/node_modules/@openzeppelin/contracts/",
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
