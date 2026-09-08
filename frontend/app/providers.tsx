@@ -1,6 +1,22 @@
 'use client';
 
 import {PrivyProvider} from '@privy-io/react-auth';
+import {defineChain} from 'viem';
+
+const sepolia = defineChain({
+  id: 11155111,
+  name: 'Ethereum Sepolia',
+  network: 'ethereum-sepolia',
+  nativeCurrency: {
+    name: 'Sepolia ETH',
+    symbol: 'ETH',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {http: ['https://ethereum-sepolia-rpc.publicnode.com']},
+    public: {http: ['https://ethereum-sepolia-rpc.publicnode.com']},
+  },
+});
 
 export default function Providers({children}: {children: React.ReactNode}) {
   return (
@@ -12,6 +28,8 @@ export default function Providers({children}: {children: React.ReactNode}) {
             createOnLogin: 'users-without-wallets',
           },
         },
+        defaultChain: sepolia,
+        supportedChains: [sepolia],
       }}
     >
       {children}
