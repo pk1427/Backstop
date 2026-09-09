@@ -8,10 +8,10 @@ A Chainlink CRE confidential workflow integration where a `handlerInTee` compute
 
 | Requirement | Evidence |
 |-------------|----------|
-| `handlerInTee` / `cre.HandlerInTee` registered | Workflow shape defined in `contracts/test/Phase3CRE.t.sol` and `contracts/test/Phase5FullIntegration.t.sol`; mock forwarder simulates authenticated `onReport` delivery |
+| `handlerInTee` / `cre.HandlerInTee` registered | Workflow shape defined in `cre-workflow/my-workflow/workflow.ts` with `cre.handlerInTee(...)` and TEE constraints; mock forwarder simulates authenticated `onReport` delivery in tests |
 | Sensitive input processed inside enclave | Maker's private discount curve parameters (`minDiscountBps`, `maxDiscountBps`, risk appetite) are the confidential inputs — only `{price, size, expiry}` leaves the enclave |
 | Confidential portion meaningfully integrated | `QuoteRegistry` stores CRE-delivered quotes; `LiquidationBackstopApp` reads and validates them against immutable strategy bounds before any token movement |
-| CLI simulation or live deployment as evidence | CRE CLI simulation captured at commit `900a8f6`; live Sepolia `QuoteRegistry` deployed at `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` |
+| CLI simulation or live deployment as evidence | **CLI simulation captured at commit `900a8f6`**; complete `handlerInTee` workflow source in `cre-workflow/my-workflow/workflow.ts`; live Sepolia `QuoteRegistry` at `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` with `onlyForwarder` auth. Per the prize page's explicit "simulation OR deployment" allowance, this submission uses simulation as its evidence. Live `cre workflow deploy` is pending private-beta access and is **explicitly out of scope** for this submission.
 
 ## Key files
 
@@ -48,10 +48,15 @@ struct Quote {
 
 `QuoteRegistry` inherits from `ReceiverTemplate`, which checks `msg.sender == creForwarder`. Any non-forwarder call to `onReport` reverts with `InvalidSender(address,address)` — verified in `Phase3CRE.t.sol:129-135`.
 
-## Live status
+## CRE submission evidence (closed decision)
 
-- `QuoteRegistry` deployed on Sepolia: `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95`
-- CRE integration access pending; mock forwarder (`address(0xABCD)`) used for deterministic tests until live delivery is available
+Per the Chainlink prize page's "simulation OR deployment" allowance, this submission uses:
+
+1. **CRE CLI simulation** — captured at commit `900a8f6` (Sep 7, 2026). The full `handlerInTee` workflow, including `runtime.getSecret()` for the private discount curve and `runtime.usingTheDons().writeReport()` delivery, is implemented in `cre-workflow/my-workflow/workflow.ts`.
+2. **Live `QuoteRegistry`** — deployed on Sepolia at `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` with `onlyForwarder` authentication. Verified in `contracts/test/Phase3CRE.t.sol` and `contracts/test/Phase5FullIntegration.t.sol`.
+3. **Complete workflow source** — `cre-workflow/my-workflow/workflow.ts` contains the full `handlerInTee` implementation.
+
+Live `cre workflow deploy` to Chainlink's staging/production DON is pending private-beta access enrollment. This is **explicitly out of scope for this submission**. The prize rules accept simulation as sufficient evidence, and we are exercising that allowance.
 
 ## Chainlink Liquidation Challenge
 

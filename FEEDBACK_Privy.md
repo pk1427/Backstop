@@ -8,7 +8,7 @@ A self-custodial maker flow using Privy embedded wallets with a scoped signer an
 
 | Requirement | Evidence |
 |-------------|----------|
-| ≥1 functional flow using a generally-available Privy feature | Embedded wallet creation, `addSigners()` with auth key + policy, `sendTransaction()` through scoped signer — all in `frontend/app/overview/page.tsx` |
+| ≥1 functional flow using a generally-available Privy feature | Embedded wallet creation, `addSigners()` with auth key + policy, `sendTransaction()` through scoped signer — all in `frontend/context/BackstopContext.tsx` |
 | Transfers are explicitly eligible | USDC `approve()` and `ship()` transactions visibly signed and sent by the Privy embedded wallet |
 | ≥1 Privy control (policy/signer/quorum/intent) | Scoped signer with policy IDs enforced client-side; rejection of disallowed transactions logged in Policy Log |
 | ≥1 functional B2B workflow | Scoped signer spend policy already satisfies B2B use case — bounded automated liquidation backstop for institutions |
@@ -18,27 +18,28 @@ A self-custodial maker flow using Privy embedded wallets with a scoped signer an
 
 | File | Purpose |
 |------|---------|
-| `frontend/app/overview/page.tsx` | Login, embedded wallet display, balance polling, scoped signer creation, approve/ship/policy-test buttons, Policy Log section |
+| `frontend/context/BackstopContext.tsx` | Privy login, embedded wallet state, scoped signer creation, approve/ship/policy-test functions, `addPolicyLog` |
+| `frontend/app/overview/page.tsx` | UI shell: login button, scoped signer status, approve/ship/policy-test buttons, PolicyChecklist rendering |
 | `frontend/app/providers.tsx` | `PrivyProvider` config with Sepolia chain, embedded wallet creation on login |
 | `contracts/test/Phase1Spikes.t.sol` | Privy spike tests: policy allow/block addresses |
 
 ## Flow walkthrough
 
-1. **Login with Privy** → embedded wallet created (`overview/page.tsx:66-69`)
-2. **Add Scoped Signer** → `addSigners({ address, signers: [{ signerId, policyIds }] })` (`overview/page.tsx:118-143`)
-3. **Approve Aqua** → ERC-20 `approve()` sent through scoped signer (`overview/page.tsx:207-220`)
-4. **Ship Strategy** → `aqua.ship()` calldata encoded and sent through scoped signer (`overview/page.tsx:222-255`)
+1. **Login with Privy** → embedded wallet created (`BackstopContext.tsx:176` — `usePrivy()` hook)
+2. **Add Scoped Signer** → `addSigners({ address, signers: [{ signerId, policyIds }] })` (`BackstopContext.tsx:293-321`)
+3. **Approve Aqua** → ERC-20 `approve()` sent through scoped signer (`BackstopContext.tsx:386-400`)
+4. **Ship Strategy** → `aqua.ship()` calldata encoded and sent through scoped signer (`BackstopContext.tsx:401-445`)
 5. **Policy Tests**:
-   - **Within-policy tx**: zero-value USDC transfer to self succeeds (`overview/page.tsx:257-268`)
-   - **Outside-policy tx**: transfer to disallowed address blocked client-side (`overview/page.tsx:270-283`)
+   - **Within-policy tx**: zero-value USDC transfer to self succeeds (`BackstopContext.tsx:446-455`)
+   - **Outside-policy tx**: transfer to disallowed address blocked client-side (`BackstopContext.tsx:456-460`)
 
 ## Policy enforcement
 
 | Layer | Mechanism | Where |
 |-------|-----------|-------|
-| Client-side allowlist | `enforceClientAllowlist` checks `to` against `[AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, ALLOWED_ADDRESS, USDC_ADDRESS]` | `overview/page.tsx:176-181` |
-| Privy server-side policy | Scoped signer with `policyIds` — enforced by Privy Wallet API | `overview/page.tsx:123-129` |
-| Policy Log UI | Every accept/reject event timestamped and displayed | `overview/page.tsx:402-411` (Policy Log section) |
+| Client-side allowlist | `enforceClientAllowlist` checks `to` against `[AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, ALLOWED_ADDRESS, USDC_ADDRESS]` | `BackstopContext.tsx:358-360` |
+| Privy server-side policy | Scoped signer with `policyIds` — enforced by Privy Wallet API | `BackstopContext.tsx:137-143` (interface), `BackstopContext.tsx:293-321` (implementation) |
+| Policy Log UI | Every accept/reject event timestamped and displayed | `BackstopContext.tsx:202` (`addPolicyLog`), rendered in `overview/page.tsx:99` (`PolicyChecklist` component) |
 
 ## Demo moments
 

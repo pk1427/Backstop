@@ -58,8 +58,9 @@ live Sepolia when Aave V3 and CRE forwarder are available.
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/<your-repo>/backstop.git
-cd backstop
+git clone https://github.com/pk1427/Backstop.git
+cd Backstop
+git submodule update --init --recursive
 forge install
 cd frontend && npm install && cd ..
 ```
@@ -82,6 +83,13 @@ Required variables:
 | `NEXT_PUBLIC_AQUA_REGISTRY_ADDRESS` | Aqua registry address (Sepolia: `0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a`) |
 | `NEXT_PUBLIC_USDC_ADDRESS` | USDC token address on target chain |
 | `NEXT_PUBLIC_WETH_ADDRESS` | WETH token address on target chain |
+| `NEXT_PUBLIC_RPC_URL` | Sepolia RPC URL |
+| `NEXT_PUBLIC_CHAIN_ID` | Chain ID (default: `11155111`) |
+| `NEXT_PUBLIC_ALLOWED_ADDRESS` | Optional extra address for client-side allowlist |
+| `NEXT_PUBLIC_AAVE_POOL_ADDRESS` | Aave V3 Pool address (Sepolia) |
+| `NEXT_PUBLIC_AAVE_ORACLE` | Aave V3 Oracle address (Sepolia) |
+| `NEXT_PUBLIC_AAVE_USDC_ADDRESS` | Aave USDC address (Sepolia) |
+| `NEXT_PUBLIC_AAVE_WETH_ADDRESS` | Aave WETH address (Sepolia) |
 
 ### 3. Run tests
 
@@ -98,6 +106,8 @@ npm run dev
 ```
 
 Open http://localhost:3000 and login with Privy.
+
+> **Note:** The frontend requires valid Privy credentials (`NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_AUTH_KEY_ID`, `NEXT_PUBLIC_PRIVY_POLICY_ID`) to build and run. Without them, the Privy provider will fail to initialize. The `.env.local` file is gitignored; copy `.env.example` and fill in your own values from the [Privy Dashboard](https://dashboard.privy.io/).
 
 ## Project Structure
 
@@ -141,6 +151,16 @@ cre-workflow/
 | **Chainlink (CRE)** | `QuoteRegistry` with `onlyForwarder` auth, `handlerInTee`-shaped delivery path, mock CRE forwarder for demo | `contracts/src/QuoteRegistry.sol` (forwarder-only writes), `contracts/src/ReceiverTemplate.sol` (CRE auth), `contracts/test/Phase3CRE.t.sol` (quote auth + production flow), `contracts/test/Phase5FullIntegration.t.sol` (end-to-end mock CRE pipeline) |
 | **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/overview/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
 | **Aave (Sepolia)** | `AaveV3SepoliaAdapter` reads real health factor and executes real liquidation via `liquidationCall()` | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol` |
+
+## Chainlink CRE Evidence (closed decision)
+
+Per the Chainlink prize page's explicit allowance of "CLI simulation **or** live deployment," this submission uses the following evidence:
+
+1. **CRE CLI simulation** captured at commit `900a8f6` (Sep 7, 2026). The full `handlerInTee` workflow shape, including `runtime.getSecret()` for the private discount curve and `runtime.usingTheDons().writeReport()` delivery, is implemented in `cre-workflow/my-workflow/workflow.ts`.
+2. **Live `QuoteRegistry`** deployed on Sepolia at `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` with `onlyForwarder` authentication.
+3. **Complete `handlerInTee` workflow source** in `cre-workflow/my-workflow/workflow.ts`.
+
+Live `cre workflow deploy` to Chainlink's staging/production DON is pending private-beta access enrollment. This is **explicitly out of scope for this submission**; the prize rules accept simulation as sufficient evidence, and we are exercising that allowance.
 
 ## Demo Flow
 
