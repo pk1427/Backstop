@@ -38,11 +38,12 @@ LiquidatorExecutor.aquaAppSwapCallback()
    │  spends the pulled USDC to call AaveV3SepoliaAdapter.liquidationCall()
    │  receives WETH collateral in return
    │
-   └─ aqua.push(maker, app, strategyHash, WETH, amountReceived)       ← maker's INPUT leg
-   ▼
+    └─ aqua.push(maker, app, strategyHash, WETH, amountReceived)       ← maker's INPUT leg
+    ▼
 ATOMIC SETTLEMENT COMPLETE
 Maker's wallet now holds WETH it didn't have before; USDC it approved is gone;
-everything happened in one transaction, on Sepolia, fully verifiable.
+everything happened in one transaction, fully verifiable on a local fork or
+live Sepolia when Aave V3 and CRE forwarder are available.
 ```
 
 ## Quick Start

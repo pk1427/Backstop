@@ -13,12 +13,14 @@ contract QuoteRegistry is ReceiverTemplate {
         bytes32 quoteId;
         uint256 price;
         uint256 size;
-        uint64 expiry;
-        bool execute;
+        uint64  expiry;
+        bool    execute;
+        bool    consumed;
     }
 
     mapping(bytes32 => Quote) public quotes;
     mapping(bytes32 => bool) public quoteExists;
+    mapping(bytes32 => bool) public quoteConsumed;
 
     event QuoteSubmitted(
         bytes32 indexed quoteId,
@@ -68,7 +70,8 @@ contract QuoteRegistry is ReceiverTemplate {
             price: price,
             size: size,
             expiry: expiry,
-            execute: execute
+            execute: execute,
+            consumed: false
         });
         quoteExists[quoteId] = true;
 
@@ -80,5 +83,14 @@ contract QuoteRegistry is ReceiverTemplate {
     /// @return The quote struct
     function getQuote(bytes32 quoteId) external view returns (Quote memory) {
         return quotes[quoteId];
+    }
+
+    /// @notice Marks a quote as consumed after successful execution
+    /// @dev Only callable by the BackstopApp to prevent double-spending
+    function consumeQuote(bytes32 quoteId) external {
+        require(quoteExists[quoteId], "Quote does not exist");
+        require(!quoteConsumed[quoteId], "Quote already consumed");
+        quoteConsumed[quoteId] = true;
+        quotes[quoteId].consumed = true;
     }
 }

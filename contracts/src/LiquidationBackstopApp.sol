@@ -15,6 +15,7 @@ contract LiquidationBackstopApp is AquaApp {
     error QuoteTooLarge();
     error QuotePriceOutOfBounds();
     error UnauthorizedQuoteWriter();
+    error QuoteAlreadyConsumed();
 
     event StrategyShipped(bytes32 indexed strategyHash, address indexed maker, address tokenIn, address tokenOut, uint256 maxTrade, uint16 minDiscountBps, uint16 maxDiscountBps, uint64 expiry);
     event QuoteValidated(bytes32 indexed strategyHash, bytes32 indexed quoteId, uint256 price, uint256 size);
@@ -56,6 +57,7 @@ contract LiquidationBackstopApp is AquaApp {
 
         // Validate quote exists and is executable
         require(registryQuote.execute, "Quote not executable");
+        require(!quoteRegistry.quoteConsumed(quoteId), "Quote already consumed");
 
         // Validate quote expiry
         require(block.timestamp <= registryQuote.expiry, "Quote expired");
@@ -78,6 +80,9 @@ contract LiquidationBackstopApp is AquaApp {
 
         // Verify taker pushed enough WETH
         _safeCheckAquaPush(strategy.maker, strategyHash, strategy.tokenIn, quotedSize);
+
+        // Mark quote as consumed to prevent replay
+        quoteRegistry.consumeQuote(quoteId);
 
         emit SwapExecuted(strategyHash, strategy.maker, quotedSize, quotedSize);
         return quotedSize;

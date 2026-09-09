@@ -35,6 +35,11 @@ contract LiquidatorExecutor is IBackstopTaker {
         // Decode liquidation params from takerData
         (address borrower, uint256 expectedWethOut) = abi.decode(takerData, (address, uint256));
 
+        address debtToken = lendingAdapter.debtAsset(borrower);
+        if (debtToken.code.length > 0) {
+            IERC20(debtToken).approve(address(lendingAdapter), amountOut);
+        }
+
         // Call Aave liquidation using the pulled USDC
         uint256 wethReceived = lendingAdapter.liquidationCall(
             lendingAdapter.collateralAsset(borrower),

@@ -46,7 +46,7 @@ struct Quote {
 
 ## Forwarder authentication
 
-`QuoteRegistry` inherits from `ReceiverTemplate`, which checks `msg.sender == creForwarder`. Any non-forwarder call to `onReport` reverts with `InvalidSender(address,address)` — verified in `Phase3CRE.t.sol:127-134`.
+`QuoteRegistry` inherits from `ReceiverTemplate`, which checks `msg.sender == creForwarder`. Any non-forwarder call to `onReport` reverts with `InvalidSender(address,address)` — verified in `Phase3CRE.t.sol:129-135`.
 
 ## Live status
 

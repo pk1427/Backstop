@@ -293,4 +293,55 @@ contract Phase3CRETest is Test {
             salt: bytes32(0)
         }), quoteIdHigh, takerDataHigh);
     }
+
+    // ========== REPLAY PROTECTION: Quote cannot be reused ==========
+
+    function testReplayProtection_ConsumedQuoteReverts() public {
+        bytes32 quoteId = keccak256("quote-replay");
+        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp + 1 hours), true);
+
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", payload);
+
+        // Setup under-collateralized borrower
+        address borrower = address(0x4444);
+        uint256 collateralAmount = 2_000e18;
+        uint256 debtAmount = 3_000e18;
+        weth.mint(borrower, collateralAmount);
+        usdc.mint(borrower, 5_000e18);
+        vm.startPrank(borrower);
+        weth.approve(address(lendingPool), collateralAmount);
+        usdc.approve(address(lendingPool), 5_000e18);
+        vm.stopPrank();
+        lendingPool.fundBorrower(borrower, collateralAmount, debtAmount);
+
+        // First swap succeeds
+        bytes memory takerData = abi.encode(borrower, 1_000e18);
+        vm.prank(address(liquidatorExecutor));
+        uint256 pulled = backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
+            maker: maker,
+            tokenIn: address(weth),
+            tokenOut: address(usdc),
+            maxTrade: 1_000e18,
+            minDiscountBps: 100,
+            maxDiscountBps: 500,
+            expiry: uint64(block.timestamp + 365 days),
+            salt: bytes32(0)
+        }), quoteId, takerData);
+        assertEq(pulled, 1_000e18, "First swap should succeed");
+
+        // Second swap with same quoteId should revert
+        vm.prank(address(liquidatorExecutor));
+        vm.expectRevert("Quote already consumed");
+        backstopApp.swap(strategyHash, LiquidationBackstopApp.Strategy({
+            maker: maker,
+            tokenIn: address(weth),
+            tokenOut: address(usdc),
+            maxTrade: 1_000e18,
+            minDiscountBps: 100,
+            maxDiscountBps: 500,
+            expiry: uint64(block.timestamp + 365 days),
+            salt: bytes32(0)
+        }), quoteId, takerData);
+    }
 }

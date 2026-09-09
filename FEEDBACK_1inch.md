@@ -26,9 +26,9 @@ A custom AquaApp (`LiquidationBackstopApp`) that enforces immutable strategy bou
 ## Architecture notes
 
 - **Immutable strategy bounds** live in the `Strategy` struct (`contracts/src/LiquidationBackstopApp.sol:23-32`): `maker`, `tokenIn`, `tokenOut`, `maxTrade`, `minDiscountBps`, `maxDiscountBps`, `expiry`, `salt`.
-- **Output leg** (USDC) is pulled from maker via `aqua.pull()` (`LiquidationBackstopApp.sol:74`).
+- **Output leg** (USDC) is pulled from maker via `aqua.pull()` (`LiquidationBackstopApp.sol:76`).
 - **Input leg** (WETH) is pushed back to maker via `aqua.push()` (`LiquidatorExecutor.sol:45`).
-- The taker callback (`LiquidatorExecutor.backstopCallback`, `LiquidatorExecutor.sol:25-48`) is where the liquidation happens mid-settlement.
+- The taker callback (`LiquidatorExecutor.backstopCallback`, `LiquidatorExecutor.sol:26-55`) is where the liquidation happens mid-settlement.
 
 ## Demo
 

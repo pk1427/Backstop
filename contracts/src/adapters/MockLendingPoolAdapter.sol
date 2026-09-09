@@ -57,6 +57,9 @@ contract MockLendingPoolAdapter is ILendingAdapter {
     return hf > 0 && hf < 1e18;
   }
 
+  address public constant MOCK_DEBT_TOKEN = address(0xDEAD);
+  address public constant MOCK_COLLATERAL_TOKEN = address(0xBEEF);
+
   function liquidationCall(
     address /* collateralAsset */,
     address /* debtAsset */,
@@ -68,10 +71,10 @@ contract MockLendingPoolAdapter is ILendingAdapter {
   }
 
   function collateralAsset(address /* borrower */) external pure returns (address) {
-    return address(0);
+    return MOCK_COLLATERAL_TOKEN;
   }
 
   function debtAsset(address /* borrower */) external pure returns (address) {
-    return address(0);
+    return MOCK_DEBT_TOKEN;
   }
 }

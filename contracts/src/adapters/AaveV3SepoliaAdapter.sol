@@ -1,5 +1,6 @@
 pragma solidity ^0.8.20;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ILendingAdapter} from "../interfaces/ILendingAdapter.sol";
 
 contract AaveV3SepoliaAdapter is ILendingAdapter {
@@ -58,6 +59,7 @@ contract AaveV3SepoliaAdapter is ILendingAdapter {
     uint256 debtToCover,
     bool receiveAToken
   ) external payable returns (uint256) {
+    IERC20(debtAsset_).transferFrom(msg.sender, pool, debtToCover);
     (bool success, bytes memory data) = pool.call(
       abi.encodeWithSelector(
         bytes4(0xf71d0564),
