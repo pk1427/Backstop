@@ -122,8 +122,11 @@ contracts/
 
 frontend/
 └── app/
-    ├── page.tsx                     # Dashboard: Maker Capital, Strategy, Opportunity, Execution, Policy Log
-    └── providers.tsx                # Privy provider + Sepolia chain config
+    ├── overview/page.tsx               # Dashboard: Maker Capital, Strategy, Opportunity, Execution, Policy Log
+    ├── strategy/page.tsx               # Strategy management: ship, approve, fund wallet
+    ├── opportunities/page.tsx          # Live opportunities and execution
+    ├── activity/page.tsx               # Activity timeline, policy tests, failure mode lab
+    └── providers.tsx                   # Privy provider + Sepolia chain config
 
 cre-workflow/
 └── README.md                        # Chainlink CRE confidential workflow template docs
@@ -135,7 +138,7 @@ cre-workflow/
 |---------|---------------|-----------|
 | **1inch (Aqua)** | Custom `LiquidationBackstopApp` with immutable strategy bounds, atomic `pull()` → callback → `push()` settlement | `contracts/src/LiquidationBackstopApp.sol` (custom AquaApp), `contracts/src/LiquidatorExecutor.sol` (callback), `contracts/test/Phase2CoreAqua.t.sol` (Aqua mechanics) |
 | **Chainlink (CRE)** | `QuoteRegistry` with `onlyForwarder` auth, `handlerInTee`-shaped delivery path, mock CRE forwarder for demo | `contracts/src/QuoteRegistry.sol` (forwarder-only writes), `contracts/src/ReceiverTemplate.sol` (CRE auth), `contracts/test/Phase3CRE.t.sol` (quote auth + production flow), `contracts/test/Phase5FullIntegration.t.sol` (end-to-end mock CRE pipeline) |
-| **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
+| **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/overview/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
 | **Aave (Sepolia)** | `AaveV3SepoliaAdapter` reads real health factor and executes real liquidation via `liquidationCall()` | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol` |
 
 ## Demo Flow
