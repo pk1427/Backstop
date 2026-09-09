@@ -195,3 +195,11 @@ forge script script/DeployBackstopApp.s.sol:DeployBackstopApp --rpc-url $SEPOLIA
 ## License
 
 MIT
+
+## Chainlink Liquidation Challenge
+
+- ✅ **Joined** the Automated Liquidation Protection Challenge on Sepolia
+- Contract: `0x59d5B29FbA5ca865a171076BE94EbEeC5BCA1E04`
+- Tx: `0x4352fbf94cfc602233cdfaf82a05269ecef72b738b0b1206ee61e06e95c4f220`
+- Block: `11669067`
+- Date: Sept 9, 2026

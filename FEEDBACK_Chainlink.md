@@ -52,3 +52,11 @@ struct Quote {
 
 - `QuoteRegistry` deployed on Sepolia: `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95`
 - CRE integration access pending; mock forwarder (`address(0xABCD)`) used for deterministic tests until live delivery is available
+
+## Chainlink Liquidation Challenge
+
+- ✅ **Joined** the Automated Liquidation Protection Challenge
+- Contract: `0x59d5B29FbA5ca865a171076BE94EbEeC5BCA1E04`
+- Tx: `0x4352fbf94cfc602233cdfaf82a05269ecef72b738b0b1206ee61e06e95c4f220`
+- Block: `11669067`
+- Date: Sept 9, 2026
