@@ -47,27 +47,27 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+      <div className="rounded-xl border border-border bg-surface p-6">
         <div className="animate-pulse space-y-3">
-          <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-1/3" />
-          <div className="h-10 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2" />
-          <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3" />
+          <div className="h-4 bg-surface-raised rounded w-1/3" />
+          <div className="h-10 bg-surface-raised rounded w-1/2" />
+          <div className="h-4 bg-surface-raised rounded w-2/3" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+    <div className="rounded-xl border border-border bg-surface p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
+          <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">
             {isLive ? 'Live Aave Opportunity' : 'Simulated Opportunity'}
           </p>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Borrower position eligible for liquidation</p>
+          <p className="mt-1 text-sm text-text-secondary">Borrower position eligible for liquidation</p>
         </div>
         {!isLive && (
-          <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-100">
+          <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
             DEMO DATA
           </span>
         )}
@@ -75,49 +75,49 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
 
       <div className="mt-4 grid grid-cols-2 gap-4">
         <div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Health Factor</p>
+          <p className="text-xs text-text-secondary">Health Factor</p>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">{healthFactor.toFixed(2)}</span>
+            <span className="text-2xl font-semibold text-text-primary tabular-nums">{healthFactor.toFixed(2)}</span>
             <span className={`text-xs font-medium ${status.color}`}>{status.label}</span>
           </div>
         </div>
         <div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Liquidation Size</p>
-          <p className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">{quoteSizeUsd}</p>
+          <p className="text-xs text-text-secondary">Liquidation Size</p>
+          <p className="mt-1 text-2xl font-semibold text-text-primary tabular-nums">{quoteSizeUsd}</p>
         </div>
         <div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Collateral</p>
-          <p className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">{formatUsd(collateral)}</p>
+          <p className="text-xs text-text-secondary">Collateral</p>
+          <p className="mt-1 text-sm font-medium text-text-primary">{formatUsd(collateral)}</p>
         </div>
         <div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Debt</p>
-          <p className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">{formatUsd(debt)}</p>
+          <p className="text-xs text-text-secondary">Debt</p>
+          <p className="mt-1 text-sm font-medium text-text-primary">{formatUsd(debt)}</p>
         </div>
       </div>
 
       {quote && (
-        <div className="mt-4 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-4">
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">
+        <div className="mt-4 rounded-lg border border-border bg-surface-raised p-4">
+          <p className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
             {isLive ? 'Live Execution Quote' : 'Private Execution Quote'}
           </p>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Execution Price</p>
-              <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{formatUsd(executionPriceUsd)}</p>
+              <p className="text-xs text-text-secondary">Execution Price</p>
+              <p className="mt-0.5 font-medium text-text-primary tabular-nums">{formatUsd(executionPriceUsd)}</p>
             </div>
             <div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Discount</p>
-              <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{discountPct}</p>
+              <p className="text-xs text-text-secondary">Discount</p>
+              <p className="mt-0.5 font-medium text-text-primary tabular-nums">{discountPct}</p>
             </div>
             <div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Expires in</p>
-              <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">
+              <p className="text-xs text-text-secondary">Expires in</p>
+              <p className="mt-0.5 font-medium text-text-primary tabular-nums">
                 {expiresInMin > 0 ? `${expiresInMin}m ` : ''}{expiresInSec}s
               </p>
             </div>
           </div>
           {!isLive && (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">SIMULATED CRE QUOTE</p>
+            <p className="mt-2 text-xs text-warning">SIMULATED CRE QUOTE</p>
           )}
         </div>
       )}

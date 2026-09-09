@@ -21,7 +21,7 @@ export default function ActivityPage() {
   ];
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-black">
+    <div className="flex min-h-screen flex-col bg-background">
       <Header
         systemStatus={backstop.systemStatus}
         statusLabel={backstop.statusLabel}
@@ -37,16 +37,16 @@ export default function ActivityPage() {
       ]} />
 
       <main className="flex-1">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mx-auto max-w-6xl px-6 py-8">
           {!backstop.authenticated ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="h-12 w-12 rounded-xl bg-zinc-900 dark:bg-zinc-100 flex items-center justify-center mb-4">
-                <span className="text-xl font-bold text-white dark:text-zinc-900">B</span>
+              <div className="h-12 w-12 rounded-xl bg-accent flex items-center justify-center mb-4">
+                <span className="text-xl font-bold text-white">B</span>
               </div>
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Connect to view activity</h2>
+              <h2 className="text-xl font-semibold text-text-primary">Connect to view activity</h2>
               <button
                 onClick={backstop.login}
-                className="mt-6 rounded-full bg-zinc-900 dark:bg-zinc-100 px-6 py-3 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
+                className="mt-6 rounded-full bg-accent px-6 py-3 text-sm font-medium text-white hover:bg-accent-muted transition-colors"
               >
                 Connect Wallet
               </button>
@@ -55,48 +55,48 @@ export default function ActivityPage() {
             <div className="flex flex-col gap-6">
               <ActivityTimeline events={activityEvents} />
 
-              <details className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                <summary className="cursor-pointer select-none px-6 py-4 text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:text-zinc-900 dark:hover:text-zinc-100">
+              <details className="rounded-xl border border-border bg-surface">
+                <summary className="cursor-pointer select-none px-6 py-4 text-sm font-medium text-text-primary hover:text-text-primary transition-colors">
                   Wallet & Policy
                 </summary>
-                <div className="border-t border-zinc-200 dark:border-zinc-800 px-6 py-4">
+                <div className="border-t border-border px-6 py-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-3">
                       <div>
-                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Scoped Signer</p>
-                        <p className="mt-1 text-sm text-zinc-900 dark:text-zinc-100">{backstop.signerAdded ? 'Added' : 'Not added'}</p>
+                        <p className="text-xs font-medium text-text-secondary">Scoped Signer</p>
+                        <p className="mt-1 text-sm text-text-primary">{backstop.signerAdded ? 'Added' : 'Not added'}</p>
                         {!backstop.signerAdded && process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID && process.env.NEXT_PUBLIC_PRIVY_POLICY_ID && (
                           <button
                             onClick={backstop.addSigner}
                             disabled={backstop.addingSigner}
-                            className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors"
+                            className="mt-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-raised disabled:opacity-50 transition-colors"
                           >
                             {backstop.addingSigner ? 'Adding...' : 'Add Scoped Signer'}
                           </button>
                         )}
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Auth Key ID</p>
-                        <p className="mt-1 text-xs font-mono text-zinc-700 dark:text-zinc-300">{process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID ? `${process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID.slice(0, 12)}...` : 'Not configured'}</p>
+                        <p className="text-xs font-medium text-text-secondary">Auth Key ID</p>
+                        <p className="mt-1 text-xs font-mono text-text-primary">{process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID ? `${process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID.slice(0, 12)}...` : 'Not configured'}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Policy ID</p>
-                        <p className="mt-1 text-xs font-mono text-zinc-700 dark:text-zinc-300">{process.env.NEXT_PUBLIC_PRIVY_POLICY_ID ? `${process.env.NEXT_PUBLIC_PRIVY_POLICY_ID.slice(0, 12)}...` : 'Not configured'}</p>
+                        <p className="text-xs font-medium text-text-secondary">Policy ID</p>
+                        <p className="mt-1 text-xs font-mono text-text-primary">{process.env.NEXT_PUBLIC_PRIVY_POLICY_ID ? `${process.env.NEXT_PUBLIC_PRIVY_POLICY_ID.slice(0, 12)}...` : 'Not configured'}</p>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Policy Tests</p>
+                        <p className="text-xs font-medium text-text-secondary">Policy Tests</p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             onClick={backstop.testWithinPolicyTx}
-                            className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-raised transition-colors"
                           >
                             Test Within-Policy Tx
                           </button>
                           <button
                             onClick={backstop.testOutsidePolicyTx}
-                            className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-raised transition-colors"
                           >
                             Test Disallowed Tx
                           </button>
@@ -107,34 +107,34 @@ export default function ActivityPage() {
                 </div>
               </details>
 
-              <details className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                <summary className="cursor-pointer select-none px-6 py-4 text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:text-zinc-900 dark:hover:text-zinc-100">
+              <details className="rounded-xl border border-border bg-surface">
+                <summary className="cursor-pointer select-none px-6 py-4 text-sm font-medium text-text-primary hover:text-text-primary transition-colors">
                   Advanced: Failure Mode Lab
                 </summary>
-                <div className="border-t border-zinc-200 dark:border-zinc-800 px-6 py-4">
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                <div className="border-t border-border px-6 py-4">
+                  <p className="text-xs text-text-secondary mb-3">
                     Each button simulates a contract-level revert. These are demo controls, not production paths.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={backstop.triggerExpiredQuote} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors">
+                    <button onClick={backstop.triggerExpiredQuote} className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-primary hover:bg-surface transition-colors">
                       <span className="block font-semibold">Expired Quote</span>
-                      <span className="block mt-0.5 text-zinc-500 dark:text-zinc-400">Quote expiry in the past</span>
+                      <span className="block mt-0.5 text-text-secondary">Quote expiry in the past</span>
                     </button>
-                    <button onClick={backstop.triggerSizeExceeded} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors">
+                    <button onClick={backstop.triggerSizeExceeded} className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-primary hover:bg-surface transition-colors">
                       <span className="block font-semibold">Size exceeds maxTrade</span>
-                      <span className="block mt-0.5 text-zinc-500 dark:text-zinc-400">Quote size above strategy limit</span>
+                      <span className="block mt-0.5 text-text-secondary">Quote size above strategy limit</span>
                     </button>
-                    <button onClick={backstop.triggerPriceBelowMin} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors">
+                    <button onClick={backstop.triggerPriceBelowMin} className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-primary hover:bg-surface transition-colors">
                       <span className="block font-semibold">Price below min discount</span>
-                      <span className="block mt-0.5 text-zinc-500 dark:text-zinc-400">Price outside allowed lower bound</span>
+                      <span className="block mt-0.5 text-text-secondary">Price outside allowed lower bound</span>
                     </button>
-                    <button onClick={backstop.triggerPriceAboveMax} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors">
+                    <button onClick={backstop.triggerPriceAboveMax} className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-primary hover:bg-surface transition-colors">
                       <span className="block font-semibold">Price above max discount</span>
-                      <span className="block mt-0.5 text-zinc-500 dark:text-zinc-400">Price outside allowed upper bound</span>
+                      <span className="block mt-0.5 text-text-secondary">Price outside allowed upper bound</span>
                     </button>
-                    <button onClick={backstop.triggerUnauthorizedWrite} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors">
+                    <button onClick={backstop.triggerUnauthorizedWrite} className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-primary hover:bg-surface transition-colors">
                       <span className="block font-semibold">Unauthorized registry write</span>
-                      <span className="block mt-0.5 text-zinc-500 dark:text-zinc-400">Non-forwarder attempts onReport</span>
+                      <span className="block mt-0.5 text-text-secondary">Non-forwarder attempts onReport</span>
                     </button>
                   </div>
                 </div>
