@@ -102,7 +102,12 @@ export default function OverviewPage() {
                   <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Execution</p>
                   {backstop.executionResult ? (
                     <div className="mt-3 space-y-2">
-                      <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Execution complete</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Execution complete</p>
+                        {backstop.executionResult.simulated && (
+                          <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
+                        )}
+                      </div>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div>
                           <p className="text-xs text-zinc-500 dark:text-zinc-400">USDC Deployed</p>
@@ -126,13 +131,16 @@ export default function OverviewPage() {
                   ) : (
                     <div className="mt-3">
                       <p className="text-sm text-zinc-500 dark:text-zinc-400">No execution yet.</p>
-                      <button
-                        onClick={backstop.simulateSwap}
-                        disabled={!backstop.strategy || !backstop.latestQuote || backstop.simulating}
-                        className="mt-3 w-full rounded-lg bg-zinc-900 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors"
-                      >
-                        {backstop.simulating ? 'Executing...' : 'Execute Backstop'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={backstop.simulateSwap}
+                          disabled={!backstop.strategy || !backstop.latestQuote || backstop.simulating}
+                          className="flex-1 rounded-lg bg-zinc-900 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors"
+                        >
+                          {backstop.simulating ? 'Executing...' : 'Execute Backstop'}
+                        </button>
+                        <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
+                      </div>
                       {!backstop.strategy && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Ship a strategy first.</p>}
                       {backstop.strategy && !backstop.latestQuote && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Waiting for quote...</p>}
                     </div>

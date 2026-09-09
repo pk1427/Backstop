@@ -11,12 +11,12 @@ export default function ActivityPage() {
       let label = 'Event';
       if (log.message.includes('Strategy shipped')) label = 'STRATEGY FUNDED';
       else if (log.message.includes('Scoped signer')) label = 'SECURITY SETUP';
-      else if (log.message.includes('Swap executed')) label = 'LIQUIDATION EXECUTION';
+      else if (log.message.includes('Swap executed')) label = backstop.executionResult?.simulated ? 'LIQUIDATION EXECUTION (SIMULATED)' : 'LIQUIDATION EXECUTION';
       else if (log.message.includes('Transaction succeeded')) label = 'TRANSACTION';
       else if (log.message.includes('blocked') || log.message.includes('Blocked')) label = 'ACCESS CONTROL';
       else if (log.message.includes('error') || log.message.includes('Error')) label = 'ERROR';
       else label = log.message.slice(0, 30).toUpperCase();
-      return {time: log.time, label, status: log.type, description: log.message};
+      return {time: log.time, label, status: log.type, description: log.message, simulated: backstop.executionResult?.simulated && log.message.includes('Swap executed')};
     }),
   ];
 

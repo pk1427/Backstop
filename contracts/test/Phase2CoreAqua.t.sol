@@ -34,7 +34,7 @@ contract Phase2CoreAquaTest is Test {
         quoteRegistry = new QuoteRegistry(address(0xABCD));
         backstopApp = new LiquidationBackstopApp(IAqua(address(aqua)), quoteRegistry);
         lendingPool = new MockLendingPool();
-        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool);
+        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
         liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter);
 
         usdc = new MockERC20("USDC", "USDC");

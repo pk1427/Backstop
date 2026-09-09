@@ -95,6 +95,7 @@ export interface ExecutionResult {
   makerUsdcAfter: string;
   makerWethBefore: string;
   makerWethAfter: string;
+  simulated: boolean;
 }
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -489,6 +490,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         makerUsdcAfter: makerUsdcAfter.toFixed(2),
         makerWethBefore: makerWethBefore.toFixed(4),
         makerWethAfter: makerWethAfter.toFixed(4),
+        simulated: true,
       });
       addLog('Swap executed: ' + actualPulledUsd.toFixed(2) + ' USDC deployed, ' + actualWethReceived.toFixed(4) + ' WETH pushed', 'success');
       addPolicyLog('Swap executed successfully', 'success');
