@@ -11,6 +11,16 @@ PRIVY (policy-scoped embedded wallet)
 AQUA STRATEGY (immutable once shipped)
    │  pair: USDC/WETH · maxTrade · minDiscount/maxDiscount · expiry · maker · salt
    │
+AAVE V3 SEPOLIA (real lending pool)
+   │  pool: 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951
+   │  oracle: 0x2da88497588bf89281816106C7259e31AF45a663
+   │  USDC: 0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8
+   │  WETH: 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c
+   ▼
+AaveV3SepoliaAdapter (ILendingAdapter)
+   │  getPosition() → healthFactor, collateralUsd, debtUsd
+   │  liquidationCall() → real Aave liquidation
+   ▼
 CHAINLINK CRE — Confidential Workflow (handlerInTee)
    │  private: maker's discount curve, risk thresholds, sizing preference
    │  public:  health factor, collateral price, requested size
@@ -25,14 +35,14 @@ LiquidationBackstopApp.swap()  (custom AquaApp)
    ├─ aqua.pull(maker, strategyHash, USDC, size, LiquidatorExecutor)   ← maker's OUTPUT leg
    ▼
 LiquidatorExecutor.aquaAppSwapCallback()
-   │  spends the pulled USDC to call the Aave-fork's liquidationCall()
+   │  spends the pulled USDC to call AaveV3SepoliaAdapter.liquidationCall()
    │  receives WETH collateral in return
    │
    └─ aqua.push(maker, app, strategyHash, WETH, amountReceived)       ← maker's INPUT leg
    ▼
 ATOMIC SETTLEMENT COMPLETE
 Maker's wallet now holds WETH it didn't have before; USDC it approved is gone;
-everything happened in one transaction, on a fork, fully demoable.
+everything happened in one transaction, on Sepolia, fully verifiable.
 ```
 
 ## Quick Start
@@ -126,6 +136,7 @@ cre-workflow/
 | **1inch (Aqua)** | Custom `LiquidationBackstopApp` with immutable strategy bounds, atomic `pull()` → callback → `push()` settlement | `contracts/src/LiquidationBackstopApp.sol` (custom AquaApp), `contracts/src/LiquidatorExecutor.sol` (callback), `contracts/test/Phase2CoreAqua.t.sol` (Aqua mechanics) |
 | **Chainlink (CRE)** | `QuoteRegistry` with `onlyForwarder` auth, `handlerInTee`-shaped delivery path, mock CRE forwarder for demo | `contracts/src/QuoteRegistry.sol` (forwarder-only writes), `contracts/src/ReceiverTemplate.sol` (CRE auth), `contracts/test/Phase3CRE.t.sol` (quote auth + production flow), `contracts/test/Phase5FullIntegration.t.sol` (end-to-end mock CRE pipeline) |
 | **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
+| **Aave (Sepolia)** | `AaveV3SepoliaAdapter` reads real health factor and executes real liquidation via `liquidationCall()` | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol` |
 
 ## Demo Flow
 
@@ -157,6 +168,17 @@ cre-workflow/
 |----------|---------|
 | `LiquidationBackstopApp` | `0xc258e902262e6110b2dd0d267a6b2ab2e470b539` |
 | `QuoteRegistry` | `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` |
+
+### Aave V3 Sepolia addresses (verified from aave-dao/aave-address-book)
+
+| Component | Address |
+|-----------|---------|
+| Pool | `0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951` |
+| Oracle | `0x2da88497588bf89281816106C7259e31AF45a663` |
+| Pool Data Provider | `0x3e9708d80f7B3e43118013075F7e95CE3AB31F31` |
+| USDC | `0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8` |
+| WETH | `0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c` |
+| Chain ID | `11155111` |
 | Aqua Registry | `0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a` |
 
 ### Deploy

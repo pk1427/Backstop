@@ -10,7 +10,7 @@ contract DeployQuoteRegistry is Script {
     function run() public {
         vm.startBroadcast();
 
-        QuoteRegistry quoteRegistry = new QuoteRegistry(SEPOLIA_FORWARDER);
+        new QuoteRegistry(SEPOLIA_FORWARDER);
 
         vm.stopBroadcast();
 

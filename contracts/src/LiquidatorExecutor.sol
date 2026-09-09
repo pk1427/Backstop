@@ -5,6 +5,7 @@ import {Aqua} from "@aqua/src/Aqua.sol";
 import {IAqua} from "@aqua/src/interfaces/IAqua.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBackstopTaker} from "./LiquidationBackstopApp.sol";
+import {ILendingAdapter} from "./interfaces/ILendingAdapter.sol";
 
 /// @title LiquidatorExecutor - Executes liquidation and pushes WETH back to maker
 /// @notice Implements IBackstopTaker callback to receive USDC, call liquidation, and push WETH
@@ -13,11 +14,11 @@ contract LiquidatorExecutor is IBackstopTaker {
     event WETHPushed(address indexed maker, uint256 wethAmount);
 
     IAqua public immutable aqua;
-    MockLendingPool public immutable lendingPool;
+    ILendingAdapter public immutable lendingAdapter;
 
-    constructor(IAqua aqua_, MockLendingPool pool_) {
+    constructor(IAqua aqua_, ILendingAdapter adapter_) {
         aqua = aqua_;
-        lendingPool = pool_;
+        lendingAdapter = adapter_;
     }
 
     /// @notice Callback after USDC is pulled from maker
@@ -34,10 +35,16 @@ contract LiquidatorExecutor is IBackstopTaker {
         // Decode liquidation params from takerData
         (address borrower, uint256 expectedWethOut) = abi.decode(takerData, (address, uint256));
 
-        // Call mock Aave liquidation using the pulled USDC
-        uint256 wethReceived = lendingPool.liquidationCall(borrower, amountOut);
+        // Call Aave liquidation using the pulled USDC
+        uint256 wethReceived = lendingAdapter.liquidationCall(
+            lendingAdapter.collateralAsset(borrower),
+            lendingAdapter.debtAsset(borrower),
+            borrower,
+            amountOut,
+            false
+        );
 
-        emit LiquidationCalled(address(lendingPool), borrower, amountOut, wethReceived);
+        emit LiquidationCalled(address(lendingAdapter), borrower, amountOut, wethReceived);
 
         // Push the resulting WETH back to maker
         require(wethReceived >= expectedWethOut, "Insufficient WETH from liquidation");

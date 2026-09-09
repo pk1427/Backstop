@@ -10,6 +10,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {LiquidationBackstopApp} from "../src/LiquidationBackstopApp.sol";
 import {LiquidatorExecutor, MockLendingPool} from "../src/LiquidatorExecutor.sol";
+import {MockLendingPoolAdapter} from "../src/adapters/MockLendingPoolAdapter.sol";
 import {QuoteRegistry, IReceiver} from "../src/QuoteRegistry.sol";
 
 // Mock ERC20 for testing
@@ -47,7 +48,8 @@ contract Phase3CRETest is Test {
         quoteRegistry = new QuoteRegistry(forwarder);
         backstopApp = new LiquidationBackstopApp(IAqua(address(aqua)), quoteRegistry);
         lendingPool = new MockLendingPool();
-        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), lendingPool);
+        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool);
+        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter);
 
         usdc = new MockERC20("USDC", "USDC");
         weth = new MockERC20("WETH", "WETH");

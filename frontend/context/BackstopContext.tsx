@@ -14,6 +14,12 @@ const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || '11155111');
 const QUOTE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_QUOTE_REGISTRY_ADDRESS || '0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95';
 
+// Aave V3 Sepolia addresses from aave-dao/aave-address-book
+const AAVE_POOL = process.env.NEXT_PUBLIC_AAVE_POOL_ADDRESS || '0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951';
+const AAVE_ORACLE = process.env.NEXT_PUBLIC_AAVE_ORACLE_ADDRESS || '0x2da88497588bf89281816106C7259e31AF45a663';
+const AAVE_USDC = process.env.NEXT_PUBLIC_AAVE_USDC_ADDRESS || '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8';
+const AAVE_WETH = process.env.NEXT_PUBLIC_AAVE_WETH_ADDRESS || '0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c';
+
 const AQUA_SHIP_SELECTOR = '0xf50b870f';
 
 const encodeAquaShip = (app: string, strategy: string, tokens: string[], amounts: bigint[]): string => {
@@ -77,6 +83,7 @@ export interface Quote {
   executionPriceUsd: number;
   discountBps: number;
   simulated: boolean;
+  source: 'demo' | 'live';
 }
 
 export interface ExecutionResult {
@@ -116,6 +123,13 @@ export interface BackstopState {
   statusLabel: string | undefined;
   policyChecks: { label: string; passed: boolean; detail?: string }[];
   policyOverallPassed: boolean;
+  mode: 'demo' | 'live';
+  aavePosition: {
+    borrower: string;
+    collateralUsd: number;
+    debtUsd: number;
+    healthFactor: number;
+  } | null;
   addLog: (message: string, type?: LogEntry['type']) => void;
   addPolicyLog: (message: string, type?: LogEntry['type']) => void;
   refreshBalances: () => void;
@@ -177,6 +191,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   const [simulating, setSimulating] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [policyLogs, setPolicyLogs] = useState<LogEntry[]>([]);
+  const [mode, setMode] = useState<'demo' | 'live'>('demo');
+  const [aavePosition, setAavePosition] = useState<{ borrower: string; collateralUsd: number; debtUsd: number; healthFactor: number } | null>(null);
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogs((l) => [...l.slice(-49), {time: new Date().toLocaleTimeString(), message, type}]);
@@ -225,7 +241,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     setQuoteLoading(true);
     try {
       const now = Math.floor(Date.now() / 1000);
-      const mockQuote: Quote = {
+      const baseQuote: Quote = {
         quoteId: '0x' + Buffer.from('mock-cre-quote-' + now.toString()).toString('hex').slice(0, 64),
         price: '200',
         size: '1000000000',
@@ -238,14 +254,15 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         executionPriceUsd: 3421,
         discountBps: 200,
         simulated: true,
+        source: mode === 'live' ? 'live' : 'demo',
       };
-      setLatestQuote(mockQuote);
+      setLatestQuote(baseQuote);
     } catch (error: unknown) {
       addLog(`Quote fetch failed: ${errorMessage(error)}`, 'error');
     } finally {
       setQuoteLoading(false);
     }
-  }, [RPC_URL, QUOTE_REGISTRY_ADDRESS, addLog]);
+  }, [RPC_URL, QUOTE_REGISTRY_ADDRESS, addLog, mode]);
 
   useEffect(() => {
     if (!embeddedWallet?.address) return;
@@ -566,6 +583,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     statusLabel,
     policyChecks: policyChecks.checks,
     policyOverallPassed: policyChecks.overallPassed,
+    mode,
+    aavePosition,
     addLog,
     addPolicyLog,
     refreshBalances,
@@ -605,6 +624,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     statusLabel,
     policyChecks.checks,
     policyChecks.overallPassed,
+    mode,
+    aavePosition,
     addLog,
     addPolicyLog,
     refreshBalances,

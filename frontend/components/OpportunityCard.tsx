@@ -14,8 +14,8 @@ interface OpportunityCardProps {
     executionPriceUsd: number;
     discountBps: number;
     simulated: boolean;
+    source: 'demo' | 'live';
   } | null;
-  isDemo: boolean;
   loading?: boolean;
 }
 
@@ -30,7 +30,8 @@ function healthStatus(hf: number): { label: string; color: string } {
   return { label: 'Liquidatable', color: 'text-red-600 dark:text-red-400' };
 }
 
-export default function OpportunityCard({ quote, isDemo, loading }: OpportunityCardProps) {
+export default function OpportunityCard({ quote, loading }: OpportunityCardProps) {
+  const isLive = quote?.source === 'live';
   const healthFactor = quote?.healthFactor ?? 0;
   const collateral = quote?.collateralUsd ?? 0;
   const debt = quote?.debtUsd ?? 0;
@@ -61,11 +62,11 @@ export default function OpportunityCard({ quote, isDemo, loading }: OpportunityC
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-            {isDemo ? 'Simulated Opportunity' : 'Live Opportunity'}
+            {isLive ? 'Live Aave Opportunity' : 'Simulated Opportunity'}
           </p>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Borrower position eligible for liquidation</p>
         </div>
-        {isDemo && (
+        {!isLive && (
           <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
             DEMO DATA
           </span>
@@ -96,7 +97,9 @@ export default function OpportunityCard({ quote, isDemo, loading }: OpportunityC
 
       {quote && (
         <div className="mt-4 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-4">
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Private Execution Quote</p>
+          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">
+            {isLive ? 'Live Execution Quote' : 'Private Execution Quote'}
+          </p>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">Execution Price</p>
@@ -113,6 +116,9 @@ export default function OpportunityCard({ quote, isDemo, loading }: OpportunityC
               </p>
             </div>
           </div>
+          {!isLive && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">SIMULATED CRE QUOTE</p>
+          )}
         </div>
       )}
     </div>

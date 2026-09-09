@@ -41,7 +41,6 @@ export default function OpportunitiesPage() {
             <div className="flex flex-col gap-6">
               <OpportunityCard
                 quote={backstop.latestQuote}
-                isDemo={true}
                 loading={backstop.quoteLoading}
               />
 
