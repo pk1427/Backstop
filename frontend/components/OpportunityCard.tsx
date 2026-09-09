@@ -67,7 +67,7 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Borrower position eligible for liquidation</p>
         </div>
         {!isLive && (
-          <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-100">
             DEMO DATA
           </span>
         )}

@@ -34,9 +34,9 @@ export default function ActivityTimeline({ events }: ActivityTimelineProps) {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className={`text-sm font-medium ${style.text}`}>{event.label}</p>
-                    {event.simulated && (
-                      <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
-                    )}
+                     {event.simulated && (
+                       <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-800 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-100 border border-amber-300 dark:border-amber-500">SIMULATED</span>
+                     )}
                   </div>
                   {event.description && <p className="text-xs text-zinc-500 dark:text-zinc-400">{event.description}</p>}
                   {event.txHash && (

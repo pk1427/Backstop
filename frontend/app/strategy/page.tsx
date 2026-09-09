@@ -62,17 +62,17 @@ export default function StrategyPage() {
                   </button>
                   <button
                     onClick={backstop.approveAqua}
-                    disabled={!backstop.signerAdded}
+                    disabled={!backstop.signerAdded || backstop.approving}
                     className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors"
                   >
-                    Approve Aqua
+                    {backstop.approving ? 'Approving...' : 'Approve Aqua'}
                   </button>
                   <button
                     onClick={backstop.shipStrategy}
-                    disabled={!backstop.signerAdded}
+                    disabled={!backstop.signerAdded || backstop.shipping}
                     className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors"
                   >
-                    Ship Strategy
+                    {backstop.shipping ? 'Shipping...' : 'Ship Strategy'}
                   </button>
                 </div>
               </div>

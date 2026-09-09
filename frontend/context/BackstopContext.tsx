@@ -2,6 +2,19 @@
 
 import {createContext, useContext, useEffect, useCallback, useState, ReactNode, useMemo} from 'react';
 import {usePrivy, useWallets, useSendTransaction, useSigners} from '@privy-io/react-auth';
+import {
+  MOCK_QUOTE_PRICE_BPS,
+  MOCK_QUOTE_SIZE,
+  MOCK_HEALTH_FACTOR,
+  MOCK_COLLATERAL_USD,
+  MOCK_DEBT_USD,
+  MOCK_LIQUIDATION_SIZE_USD,
+  MOCK_EXECUTION_PRICE_USD,
+  MOCK_DISCOUNT_BPS,
+  MOCK_MAX_TRADE_USDC,
+  MOCK_MIN_DISCOUNT_BPS,
+  MOCK_MAX_DISCOUNT_BPS,
+} from '@/config/demo';
 
 const PRIVY_AUTH_KEY_ID = process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID || '';
 const PRIVY_POLICY_ID = process.env.NEXT_PUBLIC_PRIVY_POLICY_ID || '';
@@ -118,6 +131,8 @@ export interface BackstopState {
   quoteLoading: boolean;
   executionResult: ExecutionResult | null;
   simulating: boolean;
+  approving: boolean;
+  shipping: boolean;
   logs: LogEntry[];
   policyLogs: LogEntry[];
   systemStatus: 'active' | 'monitoring' | 'setup' | 'action-required' | 'paused';
@@ -190,6 +205,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [shipping, setShipping] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [policyLogs, setPolicyLogs] = useState<LogEntry[]>([]);
   const [mode, setMode] = useState<'demo' | 'live'>('demo');
@@ -244,16 +261,16 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       const now = Math.floor(Date.now() / 1000);
       const baseQuote: Quote = {
         quoteId: '0x' + Buffer.from('mock-cre-quote-' + now.toString()).toString('hex').slice(0, 64),
-        price: '200',
-        size: '1000000000',
+        price: MOCK_QUOTE_PRICE_BPS.toString(),
+        size: MOCK_QUOTE_SIZE.toString(),
         expiry: (now + 3600).toString(),
         execute: true,
-        healthFactor: 0.85,
-        collateralUsd: 12840,
-        debtUsd: 8200,
-        liquidationSizeUsd: 1000,
-        executionPriceUsd: 3421,
-        discountBps: 200,
+        healthFactor: MOCK_HEALTH_FACTOR,
+        collateralUsd: MOCK_COLLATERAL_USD,
+        debtUsd: MOCK_DEBT_USD,
+        liquidationSizeUsd: MOCK_LIQUIDATION_SIZE_USD,
+        executionPriceUsd: MOCK_EXECUTION_PRICE_USD,
+        discountBps: MOCK_DISCOUNT_BPS,
         simulated: true,
         source: mode === 'live' ? 'live' : 'demo',
       };
@@ -388,6 +405,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Missing addresses for approve', 'error');
       return;
     }
+    setApproving(true);
     try {
       addLog('Sending approve(' + AQUA_REGISTRY.slice(0, 8) + '...) from ' + embeddedWallet.address.slice(0, 8) + '...', 'info');
       const amount = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
@@ -395,6 +413,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       await sendFromEmbeddedWallet(USDC_ADDRESS as Hex, data as Hex, '0x0');
     } catch (error: unknown) {
       addLog('Approve error: ' + errorMessage(error), 'error');
+    } finally {
+      setApproving(false);
     }
   }, [embeddedWallet, addLog, sendFromEmbeddedWallet]);
 
@@ -403,14 +423,15 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Missing addresses for ship', 'error');
       return;
     }
+    setShipping(true);
     try {
       addLog('Shipping strategy to ' + BACKSTOP_APP_ADDRESS.slice(0, 8) + '...', 'info');
       const maker = embeddedWallet.address;
       const tokenIn = WETH_ADDRESS;
       const tokenOut = USDC_ADDRESS;
-      const maxTrade = (1000 * 1e6).toString();
-      const minDiscountBps = '100';
-      const maxDiscountBps = '500';
+      const maxTrade = MOCK_MAX_TRADE_USDC.toString();
+      const minDiscountBps = MOCK_MIN_DISCOUNT_BPS.toString();
+      const maxDiscountBps = MOCK_MAX_DISCOUNT_BPS.toString();
       const expiry = Math.floor(Date.now() / 1000 + 365 * 24 * 60 * 60).toString();
       const salt = '0x0000000000000000000000000000000000000000000000000000000000000000';
       const strategyBody = [
@@ -440,6 +461,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Strategy shipped successfully', 'success');
     } catch (error: unknown) {
       addLog('Ship error: ' + errorMessage(error), 'error');
+    } finally {
+      setShipping(false);
     }
   }, [embeddedWallet, addLog, sendFromEmbeddedWallet, encodeAquaShip]);
 
@@ -448,16 +471,38 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Missing embedded wallet or USDC address for policy test', 'error');
       return;
     }
-    const transferZero = '0xa9059cbb' + embeddedWallet.address.slice(2).padStart(64, '0') + '0'.padStart(64, '0');
-    addLog('Submitting zero-USDC transfer through the scoped signer', 'info');
-    await sendFromEmbeddedWallet(USDC_ADDRESS as Hex, transferZero as Hex, '0x0');
-  }, [embeddedWallet, addLog, sendFromEmbeddedWallet]);
+    try {
+      const transferZero = '0xa9059cbb' + embeddedWallet.address.slice(2).padStart(64, '0') + '0'.padStart(64, '0');
+      addLog('Submitting zero-USDC transfer through the scoped signer', 'info');
+      await sendFromEmbeddedWallet(USDC_ADDRESS as Hex, transferZero as Hex, '0x0');
+    } catch (error: unknown) {
+      const msg = errorMessage(error);
+      if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('reject') || msg.toLowerCase().includes('deny')) {
+        addLog('Transaction blocked by Privy policy: ' + msg, 'policy');
+        addPolicyLog('Transaction blocked by Privy policy', 'policy');
+      } else {
+        addLog('Policy test failed: ' + msg, 'error');
+        addPolicyLog('Policy test failed: ' + msg, 'error');
+      }
+    }
+  }, [embeddedWallet, addLog, addPolicyLog, sendFromEmbeddedWallet]);
 
   const testOutsidePolicyTx = useCallback(async () => {
     const target = '0x1111111111111111111111111111111111111111';
     addLog('Testing client-side allowlist with disallowed recipient ' + target.slice(0, 10) + '...', 'info');
-    await sendFromEmbeddedWallet(target, '0x', '0x0');
-  }, [addLog, sendFromEmbeddedWallet]);
+    try {
+      await sendFromEmbeddedWallet(target, '0x', '0x0');
+    } catch (error: unknown) {
+      const msg = errorMessage(error);
+      if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('reject') || msg.toLowerCase().includes('deny')) {
+        addLog('Transaction blocked by Privy policy: ' + msg, 'policy');
+        addPolicyLog('Transaction blocked by Privy policy', 'policy');
+      } else {
+        addLog('Policy test failed: ' + msg, 'error');
+        addPolicyLog('Policy test failed: ' + msg, 'error');
+      }
+    }
+  }, [addLog, addPolicyLog, sendFromEmbeddedWallet]);
 
   const simulateSwap = useCallback(async () => {
     if (!strategy || !latestQuote) {
@@ -577,31 +622,33 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     strategy,
     latestQuote,
     quoteLoading,
-    executionResult,
-    simulating,
-    logs,
-    policyLogs,
-    systemStatus,
-    statusLabel,
-    policyChecks: policyChecks.checks,
-    policyOverallPassed: policyChecks.overallPassed,
-    mode,
-    aavePosition,
-    addLog,
-    addPolicyLog,
-    refreshBalances,
-    addSigner,
-    fundWallet,
-    approveAqua,
-    shipStrategy,
-    simulateSwap,
-    testWithinPolicyTx,
-    testOutsidePolicyTx,
-    triggerExpiredQuote,
-    triggerSizeExceeded,
-    triggerPriceBelowMin,
-    triggerPriceAboveMax,
-    triggerUnauthorizedWrite,
+      executionResult,
+      simulating,
+      approving,
+      shipping,
+      logs,
+      policyLogs,
+      systemStatus,
+      statusLabel,
+      policyChecks: policyChecks.checks,
+      policyOverallPassed: policyChecks.overallPassed,
+      mode,
+      aavePosition,
+      addLog,
+      addPolicyLog,
+      refreshBalances,
+      addSigner,
+      fundWallet,
+      approveAqua,
+      shipStrategy,
+      simulateSwap,
+      testWithinPolicyTx,
+      testOutsidePolicyTx,
+      triggerExpiredQuote,
+      triggerSizeExceeded,
+      triggerPriceBelowMin,
+      triggerPriceAboveMax,
+      triggerUnauthorizedWrite,
   }), [
     ready,
     authenticated,
@@ -620,6 +667,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     quoteLoading,
     executionResult,
     simulating,
+    approving,
+    shipping,
     logs,
     policyLogs,
     systemStatus,
