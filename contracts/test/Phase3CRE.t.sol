@@ -48,11 +48,13 @@ contract Phase3CRETest is Test {
         quoteRegistry = new QuoteRegistry(forwarder);
         backstopApp = new LiquidationBackstopApp(IAqua(address(aqua)), quoteRegistry);
         lendingPool = new MockLendingPool();
-        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
-        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter);
 
         usdc = new MockERC20("USDC", "USDC");
         weth = new MockERC20("WETH", "WETH");
+        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
+        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter, address(backstopApp));
+        backstopApp.setExecutor(address(liquidatorExecutor));
+        quoteRegistry.setBackstopApp(address(backstopApp));
 
         // Fund maker with USDC and WETH
         usdc.mint(maker, 10_000e18);
@@ -108,7 +110,7 @@ contract Phase3CRETest is Test {
         uint64 expiry = uint64(block.timestamp + 1 hours);
 
         // Encode quote payload
-        bytes memory payload = abi.encode(quoteId, price, size, expiry, true);
+        bytes memory payload = abi.encode(quoteId, price, size, size, expiry, true);
 
         // Forwarder calls onReport
         vm.prank(forwarder);
@@ -128,11 +130,41 @@ contract Phase3CRETest is Test {
 
     function testQuoteRegistry_UnauthorizedCannotSubmit() public {
         bytes32 quoteId = keccak256("quote-unauth");
-        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp + 1 hours), true);
+        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true);
 
         vm.prank(randomCaller);
         vm.expectRevert(abi.encodeWithSelector(INVALID_SENDER_SELECTOR, randomCaller, forwarder));
         quoteRegistry.onReport("", payload);
+    }
+
+    function testQuoteRegistry_OnlyBackstopCanConsume() public {
+        bytes32 quoteId = keccak256("quote-consume-auth");
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true));
+
+        vm.prank(randomCaller);
+        vm.expectRevert(QuoteRegistry.UnauthorizedBackstopApp.selector);
+        quoteRegistry.consumeQuote(quoteId);
+    }
+
+    function testSwap_RejectsStrategyThatDoesNotMatchHash() public {
+        bytes32 quoteId = keccak256("quote-strategy-integrity");
+        vm.prank(forwarder);
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true));
+
+        LiquidationBackstopApp.Strategy memory forged = LiquidationBackstopApp.Strategy({
+            maker: maker,
+            tokenIn: address(weth),
+            tokenOut: address(usdc),
+            maxTrade: type(uint256).max,
+            minDiscountBps: 0,
+            maxDiscountBps: type(uint16).max,
+            expiry: type(uint64).max,
+            salt: bytes32(0)
+        });
+        vm.prank(address(liquidatorExecutor));
+        vm.expectRevert(LiquidationBackstopApp.InvalidStrategy.selector);
+        backstopApp.swap(strategyHash, forged, quoteId, abi.encode(address(0x4444), 1_000e18));
     }
 
     // ========== QUOTE REGISTRY: Decodes quote correctly ==========
@@ -143,7 +175,7 @@ contract Phase3CRETest is Test {
         uint256 size = 500e18;
         uint64 expiry = uint64(block.timestamp + 30 minutes);
 
-        bytes memory payload = abi.encode(quoteId, price, size, expiry, true);
+        bytes memory payload = abi.encode(quoteId, price, size, size, expiry, true);
 
         vm.prank(forwarder);
         quoteRegistry.onReport("", payload);
@@ -164,7 +196,7 @@ contract Phase3CRETest is Test {
         uint64 expiry = uint64(block.timestamp + 1 hours);
 
         // Submit quote via forwarder
-        bytes memory payload = abi.encode(quoteId, price, size, expiry, true);
+        bytes memory payload = abi.encode(quoteId, price, size, size, expiry, true);
         vm.prank(forwarder);
         quoteRegistry.onReport("", payload);
 
@@ -206,7 +238,7 @@ contract Phase3CRETest is Test {
 
     function testProductionQuote_ExpiredRejected() public {
         bytes32 quoteId = keccak256("quote-expired-prod");
-        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp - 1), true);
+        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, 1_000e18, uint64(block.timestamp - 1), true);
 
         vm.prank(forwarder);
         quoteRegistry.onReport("", payload);
@@ -230,7 +262,7 @@ contract Phase3CRETest is Test {
 
     function testProductionQuote_SizeAboveMaxTradeRejected() public {
         bytes32 quoteId = keccak256("quote-too-large-prod");
-        bytes memory payload = abi.encode(quoteId, 200, 2_000e18, uint64(block.timestamp + 1 hours), true);
+        bytes memory payload = abi.encode(quoteId, 200, 2_000e18, 2_000e18, uint64(block.timestamp + 1 hours), true);
 
         vm.prank(forwarder);
         quoteRegistry.onReport("", payload);
@@ -255,7 +287,7 @@ contract Phase3CRETest is Test {
     function testProductionQuote_PriceOutsideBoundsRejected() public {
         // Below min
         bytes32 quoteIdLow = keccak256("quote-below-min-prod");
-        bytes memory payloadLow = abi.encode(quoteIdLow, 50, 1_000e18, uint64(block.timestamp + 1 hours), true);
+        bytes memory payloadLow = abi.encode(quoteIdLow, 50, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true);
         vm.prank(forwarder);
         quoteRegistry.onReport("", payloadLow);
 
@@ -275,7 +307,7 @@ contract Phase3CRETest is Test {
 
         // Above max
         bytes32 quoteIdHigh = keccak256("quote-above-max-prod");
-        bytes memory payloadHigh = abi.encode(quoteIdHigh, 600, 1_000e18, uint64(block.timestamp + 1 hours), true);
+        bytes memory payloadHigh = abi.encode(quoteIdHigh, 600, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true);
         vm.prank(forwarder);
         quoteRegistry.onReport("", payloadHigh);
 
@@ -298,7 +330,7 @@ contract Phase3CRETest is Test {
 
     function testReplayProtection_ConsumedQuoteReverts() public {
         bytes32 quoteId = keccak256("quote-replay");
-        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp + 1 hours), true);
+        bytes memory payload = abi.encode(quoteId, 200, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true);
 
         vm.prank(forwarder);
         quoteRegistry.onReport("", payload);

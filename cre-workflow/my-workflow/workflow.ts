@@ -25,6 +25,8 @@ type Quote = {
 	quoteId: string
 	price: bigint
 	size: bigint
+	// Raw collateral-token units; WETH uses 18 decimals.
+	minCollateralOut: bigint
 	expiry: bigint
 	execute: boolean
 }
@@ -109,6 +111,9 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 	const healthFactor = 0.75 // placeholder parsing from body
 	const collateralPrice = 1_000_000_000n // placeholder parsing from body
 	const requestedSize = 1_000_000_000_000_000_000n // placeholder parsing from body
+	// Simulated only: production must derive this from authenticated prices, the
+	// maker discount, and token decimals before encoding the quote.
+	const minCollateralOut = 250_000_000_000_000_000n
 
 	// Private curve influences the quote price. The curve itself stays confidential.
 	const discountBps = computeDiscountBps(healthFactor, curve)
@@ -127,13 +132,14 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 		quoteId,
 		price: BigInt(boundedDiscount),
 		size: requestedSize,
+		minCollateralOut,
 		expiry,
 		execute: true,
 	}
 
 	const encodedPayload = encodeAbiParameters(
-		parseAbiParameters('bytes32, uint256, uint256, uint64, bool'),
-		[quote.quoteId as `0x${string}`, quote.price, quote.size, quote.expiry, quote.execute],
+		parseAbiParameters('bytes32, uint256, uint256, uint256, uint64, bool'),
+		[quote.quoteId as `0x${string}`, quote.price, quote.size, quote.minCollateralOut, quote.expiry, quote.execute],
 	)
 
 	// ── Step 4: Cross back to the DON and generate a signed report ──
@@ -181,4 +187,3 @@ export function initWorkflow(config: Config) {
 		]),
 	]
 }
-

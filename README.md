@@ -17,9 +17,9 @@ AAVE V3 SEPOLIA (real lending pool)
    │  USDC: 0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8
    │  WETH: 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c
    ▼
-AaveV3SepoliaAdapter (ILendingAdapter)
-   │  getPosition() → healthFactor, collateralUsd, debtUsd
-   │  liquidationCall() → real Aave liquidation
+AaveV3SepoliaAdapter (ILendingAdapter; integration code, not end-to-end proven)
+   │  getPosition() → Aave account data and reserve configuration
+   │  liquidationCall() → Aave V3 call model (requires a verified liquidatable position)
    ▼
 CHAINLINK CRE — Confidential Workflow (handlerInTee)
    │  private: maker's discount curve, risk thresholds, sizing preference
@@ -42,9 +42,24 @@ LiquidatorExecutor.aquaAppSwapCallback()
     ▼
 ATOMIC SETTLEMENT COMPLETE
 Maker's wallet now holds WETH it didn't have before; USDC it approved is gone;
-everything happened in one transaction, fully verifiable on a local fork or
-live Sepolia when Aave V3 and CRE forwarder are available.
+everything happens in one transaction in the mock/fork tests. It is not a
+claim of a completed live Sepolia liquidation or CRE delivery.
 ```
+
+### Quote units
+
+`price` is a discount in basis points; `size` is the debt amount in the debt
+asset's raw units (USDC uses 6 decimals); and `minCollateralOut` is the minimum
+collateral delivery in the collateral asset's raw units (WETH uses 18 decimals).
+Settlement compares only `actualCollateralReceived >= minCollateralOut`. The
+simulated CRE workflow supplies this field; a future live workflow must derive it
+from authenticated prices, discount, and token decimals.
+
+The exact quote formula is `floor(debtAmount * debtPriceUsd8 * 10^collateralDecimals
+* 10_000 / (10^debtDecimals * collateralPriceUsd8 * (10_000 - discountBps)))`.
+Prices are USD-per-whole-token with 8 decimals. Aave's liquidation bonus is used
+as a separate feasibility check: it must produce at least this maker minimum; it
+does not lower the minimum promised to the maker.
 
 ## Quick Start
 
@@ -150,7 +165,7 @@ cre-workflow/
 | **1inch (Aqua)** | Custom `LiquidationBackstopApp` with immutable strategy bounds, atomic `pull()` → callback → `push()` settlement | `contracts/src/LiquidationBackstopApp.sol` (custom AquaApp), `contracts/src/LiquidatorExecutor.sol` (callback), `contracts/test/Phase2CoreAqua.t.sol` (Aqua mechanics) |
 | **Chainlink (CRE)** | `QuoteRegistry` with `onlyForwarder` auth, `handlerInTee`-shaped delivery path, mock CRE forwarder for demo | `contracts/src/QuoteRegistry.sol` (forwarder-only writes), `contracts/src/ReceiverTemplate.sol` (CRE auth), `contracts/test/Phase3CRE.t.sol` (quote auth + production flow), `contracts/test/Phase5FullIntegration.t.sol` (end-to-end mock CRE pipeline) |
 | **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/overview/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
-| **Aave (Sepolia)** | `AaveV3SepoliaAdapter` reads real health factor and executes real liquidation via `liquidationCall()` | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol` |
+| **Aave (Sepolia)** | Adapter is configured for Aave V3 Sepolia and reads protocol account/configuration data; no live liquidation is evidenced | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol` |
 
 ## Chainlink CRE Evidence (closed decision)
 
@@ -165,7 +180,7 @@ Live `cre workflow deploy` to Chainlink's staging/production DON is pending priv
 ## Demo Flow
 
 1. **Login with Privy** → embedded wallet created on Sepolia
-2. **Add Scoped Signer** → policy enforcement active
+2. **Add Scoped Signer** → signer attached; the demo's disallowed-recipient path is a client-side allowlist, not proof of cryptographic policy enforcement
 3. **Fund Wallet** → send test USDC to embedded wallet
 4. **Approve Aqua** → maker approves Aqua registry to pull USDC
 5. **Ship Strategy** → immutable bounds written to Aqua
@@ -187,6 +202,11 @@ Live `cre workflow deploy` to Chainlink's staging/production DON is pending priv
 ## Deployment
 
 ### Sepolia addresses (from broadcast)
+
+> **Audit note:** these artifacts predate the current hardening (executor binding,
+> quote-consumer authorization, and strategy-hash binding). Do not use the listed
+> Backstop/Registry addresses for a new deployment; redeploy the hardened pair and
+> configure their one-time bindings before use.
 
 | Contract | Address |
 |----------|---------|

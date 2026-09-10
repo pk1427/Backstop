@@ -8,6 +8,7 @@ interface IQuoteSource {
     bytes32 indexed quoteId,
     uint256 price,
     uint256 size,
+    uint256 minCollateralOut,
     uint64 expiry,
     bool execute
   );
@@ -17,5 +18,5 @@ interface IQuoteSource {
     ILendingAdapter.Position memory position,
     address maker,
     bytes32 strategyHash
-  ) external returns (bytes32 quoteId, uint256 price, uint256 size, uint64 expiry, bool execute);
+  ) external returns (bytes32 quoteId, uint256 price, uint256 size, uint256 minCollateralOut, uint64 expiry, bool execute);
 }

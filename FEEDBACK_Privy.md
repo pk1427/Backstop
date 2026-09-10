@@ -10,7 +10,7 @@ A self-custodial maker flow using Privy embedded wallets with a scoped signer an
 |-------------|----------|
 | ≥1 functional flow using a generally-available Privy feature | Embedded wallet creation, `addSigners()` with auth key + policy, `sendTransaction()` through scoped signer — all in `frontend/context/BackstopContext.tsx` |
 | Transfers are explicitly eligible | USDC `approve()` and `ship()` transactions visibly signed and sent by the Privy embedded wallet |
-| ≥1 Privy control (policy/signer/quorum/intent) | Scoped signer with policy IDs enforced client-side; rejection of disallowed transactions logged in Policy Log |
+| ≥1 Privy control (policy/signer/quorum/intent) | Embedded wallet and scoped signer attachment are implemented. The rejection demo is a client-side allowlist block before broadcast, not cryptographic authorization-key or server-side policy proof. |
 | ≥1 functional B2B workflow | Scoped signer spend policy already satisfies B2B use case — bounded automated liquidation backstop for institutions |
 | Continuous Git history | Privy integration commits: `6a1d4dc`, `c4b7ff2`, `992ac82`, `177e2a0`, `509fe6a` |
 

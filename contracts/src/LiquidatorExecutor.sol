@@ -15,18 +15,22 @@ contract LiquidatorExecutor is IBackstopTaker {
 
     IAqua public immutable aqua;
     ILendingAdapter public immutable lendingAdapter;
+    address public immutable backstopApp;
 
-    constructor(IAqua aqua_, ILendingAdapter adapter_) {
+    constructor(IAqua aqua_, ILendingAdapter adapter_, address backstopApp_) {
+        require(address(aqua_) != address(0) && address(adapter_) != address(0) && backstopApp_ != address(0), "Zero address");
         aqua = aqua_;
         lendingAdapter = adapter_;
+        backstopApp = backstopApp_;
     }
 
     /// @notice Callback after USDC is pulled from maker
     /// @dev Receives USDC, calls liquidation, pushes WETH back to maker
     function backstopCallback(
         address tokenIn,
-        address /* tokenOut */,
+        address tokenOut,
         uint256 amountOut,
+        uint256 minCollateralOut,
         address maker,
         address app,
         bytes32 strategyHash,
@@ -34,6 +38,9 @@ contract LiquidatorExecutor is IBackstopTaker {
     ) external override {
         // Decode liquidation params from takerData
         (address borrower, uint256 expectedWethOut) = abi.decode(takerData, (address, uint256));
+        require(msg.sender == backstopApp && app == backstopApp, "Unauthorized callback");
+        require(tokenIn == lendingAdapter.collateralAsset(borrower), "Unexpected collateral");
+        require(tokenOut == lendingAdapter.debtAsset(borrower), "Unexpected debt asset");
 
         address debtToken = lendingAdapter.debtAsset(borrower);
         if (debtToken.code.length > 0) {
@@ -52,12 +59,15 @@ contract LiquidatorExecutor is IBackstopTaker {
         emit LiquidationCalled(address(lendingAdapter), borrower, amountOut, wethReceived);
 
         // Push the resulting WETH back to maker
+        // `minCollateralOut` and `wethReceived` are both collateral-token raw units.
+        require(wethReceived >= minCollateralOut, "Insufficient collateral output");
         require(wethReceived >= expectedWethOut, "Insufficient WETH from liquidation");
         IERC20(tokenIn).approve(address(aqua), wethReceived);
         aqua.push(maker, app, strategyHash, tokenIn, wethReceived);
 
         emit WETHPushed(maker, wethReceived);
     }
+
 }
 
 /// @title MockLendingPool - Minimal Aave-fork-compatible lending pool mock

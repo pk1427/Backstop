@@ -56,7 +56,9 @@ contract DecimalsStressTest is Test {
         weth = new MockERC20WithDecimals("WETH", "WETH", 18);
 
         MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
-        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter);
+        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter, address(backstopApp));
+        backstopApp.setExecutor(address(liquidatorExecutor));
+        quoteRegistry.setBackstopApp(address(backstopApp));
 
         // Fund maker: 10,000 USDC (6 decimals) and 10,000 WETH (18 decimals)
         usdc.mint(maker, 10_000 * 10**6);
@@ -110,7 +112,7 @@ contract DecimalsStressTest is Test {
 
         // Submit quote via forwarder
         vm.prank(forwarder);
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, quoteSize, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, quoteSize, 500e18, uint64(block.timestamp + 1 hours), true));
 
         // Setup under-collateralized borrower
         address borrower = address(0x4444);
@@ -183,7 +185,7 @@ contract DecimalsStressTest is Test {
         bytes32 quoteId = keccak256("quote-too-large-decimals");
 
         vm.prank(forwarder);
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, quoteSize, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, quoteSize, 1_000e18, uint64(block.timestamp + 1 hours), true));
 
         bytes memory takerData = abi.encode(address(0x4444), quoteSize);
 
@@ -204,7 +206,7 @@ contract DecimalsStressTest is Test {
     function testDecimalsStress_PriceBelowMinDiscountReverts() public {
         bytes32 quoteId = keccak256("quote-below-min-decimals");
         vm.prank(forwarder);
-        quoteRegistry.onReport("", abi.encode(quoteId, 50, 500 * 10**6, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 50, 500 * 10**6, 1_000e18, uint64(block.timestamp + 1 hours), true));
 
         bytes memory takerData = abi.encode(address(0x4444), 500 * 10**6);
 
