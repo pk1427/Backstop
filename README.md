@@ -18,7 +18,9 @@ AAVE V3 SEPOLIA (real lending pool)
    │  WETH: 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c
    ▼
 AaveV3SepoliaAdapter (ILendingAdapter; integration code, not end-to-end proven)
-   │  getPosition() → Aave account data and reserve configuration
+   │  getPosition() → Aave account data and reserve configuration via eth_call
+   │  isLiquidatable() → eligibility check (health factor, reserve state, close factor)
+   │  getExpectedCollateral() → Aave liquidation-b bonus math
    │  liquidationCall() → Aave V3 call model (requires a verified liquidatable position)
    ▼
 CHAINLINK CRE — Confidential Workflow (handlerInTee)
@@ -165,7 +167,7 @@ cre-workflow/
 | **1inch (Aqua)** | Custom `LiquidationBackstopApp` with immutable strategy bounds, atomic `pull()` → callback → `push()` settlement | `contracts/src/LiquidationBackstopApp.sol` (custom AquaApp), `contracts/src/LiquidatorExecutor.sol` (callback), `contracts/test/Phase2CoreAqua.t.sol` (Aqua mechanics) |
 | **Chainlink (CRE)** | `QuoteRegistry` with `onlyForwarder` auth, `handlerInTee`-shaped delivery path, mock CRE forwarder for demo | `contracts/src/QuoteRegistry.sol` (forwarder-only writes), `contracts/src/ReceiverTemplate.sol` (CRE auth), `contracts/test/Phase3CRE.t.sol` (quote auth + production flow), `contracts/test/Phase5FullIntegration.t.sol` (end-to-end mock CRE pipeline) |
 | **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/overview/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
-| **Aave (Sepolia)** | Adapter is configured for Aave V3 Sepolia and reads protocol account/configuration data; no live liquidation is evidenced | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol` |
+| **Aave (Sepolia)** | Adapter reads Aave V3 Sepolia pool, oracle, and pool-data-provider state via `eth_call`; eligibility and economics are computed onchain. No live liquidation has been executed or evidenced. | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol`, `contracts/test/AaveV3SepoliaAdapter.t.sol`, `frontend/hooks/useLiveAave.ts` |
 
 ## Chainlink CRE Evidence (closed decision)
 
@@ -232,6 +234,17 @@ cd contracts
 forge script script/DeployQuoteRegistry.s.sol:DeployQuoteRegistry --rpc-url $SEPOLIA_RPC --private-key $PRIVATE_KEY --broadcast
 forge script script/DeployBackstopApp.s.sol:DeployBackstopApp --rpc-url $SEPOLIA_RPC --private-key $PRIVATE_KEY --broadcast
 ```
+
+## Live vs Simulated Status
+
+| Component | Status | Evidence |
+|-----------|--------|----------|
+| **Frontend** | Running on Sepolia; Privy login, scoped signer, client-side allowlist, and Aqua `ship()` are live flows | UI in `frontend/` |
+| **Aave V3 Sepolia reads** | Live `eth_call` reads of pool, oracle, and pool-data-provider; no state mutations | `frontend/hooks/useLiveAave.ts`, `contracts/src/adapters/AaveV3SepoliaAdapter.sol` |
+| **Aave liquidation** | **Not executed.** `liquidationCall()` is implemented but has not been called on Sepolia. The adapter is integration-ready code. | Solidity implementation only |
+| **CRE (Chainlink)** | CLI simulation captured; live `cre workflow deploy` pending private-beta access. The prize rules accept simulation as sufficient evidence. | `cre-workflow/my-workflow/workflow.ts` |
+| **QuoteRegistry** | Simulated in UI; the onchain registry is deployed but quotes in the demo are mock-generated | `contracts/src/QuoteRegistry.sol` |
+| **Atomic settlement (Aqua)** | Proven in Foundry mock/fork tests; not evidenced as a completed live Sepolia transaction | `contracts/test/Phase2CoreAqua.t.sol`, `contracts/test/Phase5FullIntegration.t.sol` |
 
 ## License
 

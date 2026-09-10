@@ -2,6 +2,7 @@
 
 import {createContext, useContext, useEffect, useCallback, useState, ReactNode, useMemo} from 'react';
 import {usePrivy, useWallets, useSendTransaction, useSigners} from '@privy-io/react-auth';
+import {useLiveAavePosition, LiveAavePosition, LiveOpportunity, DEMO_OPPORTUNITY, buildLiveOpportunity} from '@/hooks/useLiveAave';
 
 const PRIVY_AUTH_KEY_ID = process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID || '';
 const PRIVY_POLICY_ID = process.env.NEXT_PUBLIC_PRIVY_POLICY_ID || '';
@@ -84,6 +85,36 @@ export interface Quote {
   discountBps: number;
   simulated: boolean;
   source: 'demo' | 'live';
+  // Live fields
+  minCollateralOut?: string;
+  minCollateralOutFormatted?: string;
+  expectedCollateral?: string;
+  expectedCollateralFormatted?: string;
+  maxLiquidatableDebt?: string;
+  maxLiquidatableDebtFormatted?: string;
+  liquidationBonus?: number;
+}
+
+export interface LiveOpportunityData {
+  borrower: string;
+  healthFactor: number;
+  collateralAsset: string;
+  collateralAmount: string;
+  collateralAmountFormatted: string;
+  collateralUsd: number;
+  debtAsset: string;
+  debtAmount: string;
+  debtAmountFormatted: string;
+  debtUsd: number;
+  liquidationThreshold: number;
+  liquidationBonus: number;
+  maxLiquidatableDebt: string;
+  maxLiquidatableDebtFormatted: string;
+  expectedCollateral: string;
+  expectedCollateralFormatted: string;
+  eligible: boolean;
+  eligibilityReason: string;
+  isLive: boolean;
 }
 
 export interface ExecutionResult {
@@ -125,12 +156,11 @@ export interface BackstopState {
   policyChecks: { label: string; passed: boolean; detail?: string }[];
   policyOverallPassed: boolean;
   mode: 'demo' | 'live';
-  aavePosition: {
-    borrower: string;
-    collateralUsd: number;
-    debtUsd: number;
-    healthFactor: number;
-  } | null;
+  aavePosition: LiveOpportunityData | null;
+  liveOpportunityLoading: boolean;
+  liveOpportunityError: string | null;
+  borrowerAddress: string;
+  setBorrowerAddress: (address: string) => void;
   addLog: (message: string, type?: LogEntry['type']) => void;
   addPolicyLog: (message: string, type?: LogEntry['type']) => void;
   refreshBalances: () => void;
@@ -193,7 +223,10 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [policyLogs, setPolicyLogs] = useState<LogEntry[]>([]);
   const [mode, setMode] = useState<'demo' | 'live'>('demo');
-  const [aavePosition, setAavePosition] = useState<{ borrower: string; collateralUsd: number; debtUsd: number; healthFactor: number } | null>(null);
+  const [aavePosition, setAavePosition] = useState<LiveOpportunityData | null>(null);
+  const [liveOpportunityLoading, setLiveOpportunityLoading] = useState(false);
+  const [liveOpportunityError, setLiveOpportunityError] = useState<string | null>(null);
+  const [borrowerAddress, setBorrowerAddress] = useState<string>('');
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogs((l) => [...l.slice(-49), {time: new Date().toLocaleTimeString(), message, type}]);
@@ -289,6 +322,39 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   useEffect(() => {
     fetchQuoteFromRegistry();
   }, [fetchQuoteFromRegistry]);
+
+  const {position: livePosition, prices: livePrices, loading: liveLoading, error: liveError} = useLiveAavePosition(
+    borrowerAddress || null,
+    Boolean(borrowerAddress) && mode === 'live'
+  );
+
+  useEffect(() => {
+    if (mode === 'live' && livePosition) {
+      setAavePosition({
+        borrower: livePosition.borrower,
+        healthFactor: livePosition.healthFactor,
+        collateralAsset: livePosition.collateralAsset,
+        collateralAmount: livePosition.collateralAmount,
+        collateralAmountFormatted: livePosition.collateralAmountFormatted,
+        collateralUsd: livePosition.collateralUsd,
+        debtAsset: livePosition.debtAsset,
+        debtAmount: livePosition.debtAmount,
+        debtAmountFormatted: livePosition.debtAmountFormatted,
+        debtUsd: livePosition.debtUsd,
+        liquidationThreshold: livePosition.liquidationThreshold,
+        liquidationBonus: livePosition.liquidationBonus,
+        maxLiquidatableDebt: livePosition.maxLiquidatableDebt,
+        maxLiquidatableDebtFormatted: livePosition.maxLiquidatableDebtFormatted,
+        expectedCollateral: livePosition.expectedCollateral,
+        expectedCollateralFormatted: livePosition.expectedCollateralFormatted,
+        eligible: livePosition.eligible,
+        eligibilityReason: livePosition.eligibilityReason,
+        isLive: livePosition.isLive,
+      });
+      setLiveOpportunityLoading(liveLoading);
+      setLiveOpportunityError(liveError);
+    }
+  }, [mode, livePosition, liveLoading, liveError]);
 
   const addSigner = useCallback(async () => {
     if (!embeddedWallet || !PRIVY_AUTH_KEY_ID || !PRIVY_POLICY_ID) return;
@@ -587,6 +653,10 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     policyOverallPassed: policyChecks.overallPassed,
     mode,
     aavePosition,
+    liveOpportunityLoading,
+    liveOpportunityError,
+    borrowerAddress,
+    setBorrowerAddress,
     addLog,
     addPolicyLog,
     refreshBalances,
@@ -628,6 +698,10 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     policyChecks.overallPassed,
     mode,
     aavePosition,
+    liveOpportunityLoading,
+    liveOpportunityError,
+    borrowerAddress,
+    setBorrowerAddress,
     addLog,
     addPolicyLog,
     refreshBalances,
