@@ -1,22 +1,12 @@
 'use client';
 
-import {useEffect, useState} from 'react';
-
 interface PolicyChecklistProps {
   checks: { label: string; passed: boolean; detail?: string }[];
   overallPassed: boolean;
 }
 
 export default function PolicyChecklist({ checks, overallPassed }: PolicyChecklistProps) {
-  const [animatePass, setAnimatePass] = useState(false);
-
-  useEffect(() => {
-    if (overallPassed) {
-      const timer = setTimeout(() => setAnimatePass(true), 50);
-      return () => clearTimeout(timer);
-    }
-    setAnimatePass(false);
-  }, [overallPassed]);
+  const animatePass = overallPassed;
 
   return (
     <div className={`rounded-xl border bg-surface p-6 transition-all duration-300 ${animatePass ? 'border-accent border-l-4' : 'border-border'}`}>
@@ -26,9 +16,9 @@ export default function PolicyChecklist({ checks, overallPassed }: PolicyCheckli
         {checks.map((check, idx) => (
           <div
             key={idx}
-            className="flex items-center justify-between rounded-lg border border-border bg-surface-raised px-3 py-2 transition-all duration-300"
+            className={`flex items-center justify-between rounded-lg border border-border bg-surface-raised px-3 py-2 transition-all duration-300 ${overallPassed ? 'animate-policy-pass' : ''}`}
             style={{
-              transitionDelay: animatePass ? `${idx * 50}ms` : '0ms',
+              animationDelay: overallPassed ? `${idx * 50}ms` : '0ms',
             }}
           >
             <div className="flex items-center gap-2">

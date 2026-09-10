@@ -1,7 +1,7 @@
 'use client';
 
 import {useBackstop} from '@/hooks/useBackstop';
-import {Header, Navigation, ActivityTimeline, SponsorFooter} from '@/components';
+import {Header, ActivityTimeline, SponsorFooter} from '@/components';
 
 export default function ActivityPage() {
   const backstop = useBackstop();
@@ -27,26 +27,26 @@ export default function ActivityPage() {
         statusLabel={backstop.statusLabel}
         walletAddress={backstop.embeddedWallet?.address}
         network={`Sepolia (${process.env.NEXT_PUBLIC_CHAIN_ID || '11155111'})`}
+        navItems={[
+          {label: 'Overview', href: '/overview'},
+          {label: 'Strategy', href: '/strategy'},
+          {label: 'Opportunities', href: '/opportunities'},
+          {label: 'Activity', href: '/activity', active: true},
+        ]}
         onLogout={backstop.logout}
       />
-      <Navigation items={[
-        {label: 'Overview', href: '/overview', active: false},
-        {label: 'Strategy', href: '/strategy', active: false},
-        {label: 'Opportunities', href: '/opportunities', active: false},
-        {label: 'Activity', href: '/activity', active: true},
-      ]} />
 
       <main className="flex-1">
         <div className="mx-auto max-w-6xl px-6 py-8">
           {!backstop.authenticated ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <div className="h-12 w-12 rounded-xl bg-accent flex items-center justify-center mb-4">
-                <span className="text-xl font-bold text-white">B</span>
+                <span className="text-xl font-bold text-accent-contrast">B</span>
               </div>
               <h2 className="text-xl font-semibold text-text-primary">Connect to view activity</h2>
               <button
                 onClick={backstop.login}
-                className="mt-6 rounded-full bg-accent px-6 py-3 text-sm font-medium text-white hover:bg-accent-muted transition-colors"
+                className="mt-6 rounded-full bg-accent px-6 py-3 text-sm font-medium text-accent-contrast hover:bg-accent-muted transition-colors"
               >
                 Connect Wallet
               </button>

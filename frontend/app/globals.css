@@ -1,18 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8f9fb;
+  --background: #f0f2f5;
   --foreground: #0f1117;
   --surface: #ffffff;
   --surface-raised: #f1f3f6;
-  --border: #e2e5ec;
+  --border: #d0d8e8;
   --text-primary: #0f1117;
-  --text-secondary: #6b7280;
-  --accent: #14b8a6;
-  --accent-muted: #0f766e;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --text-secondary: #5a6278;
+  --accent: #76591d;
+  --accent-muted: #5f4715;
+  --accent-contrast: #ffffff;
+  --success: #047857;
+  --warning: #92400e;
+  --danger: #b91c1c;
 }
 
 @theme inline {
@@ -25,37 +26,32 @@
   --color-text-secondary: var(--text-secondary);
   --color-accent: var(--accent);
   --color-accent-muted: var(--accent-muted);
+  --color-accent-contrast: var(--accent-contrast);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-ibm-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0b0d12;
-    --foreground: #e6e8f0;
-    --surface: #13161d;
-    --surface-raised: #1a1e27;
-    --border: #252a37;
-    --text-primary: #e6e8f0;
-    --text-secondary: #8b919f;
-    --accent: #14b8a6;
-    --accent-muted: #0f766e;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
+    --background: #0a0e1a;
+    --foreground: #e8eaf0;
+    --surface: #111624;
+    --surface-raised: #1c2536;
+    --border: #2a3550;
+    --text-primary: #e8eaf0;
+    --text-secondary: #8b95a8;
+    --accent: #e3b95a;
+    --accent-muted: #d4a843;
+    --accent-contrast: #0a0e1a;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
-}
-
-/* Reduce motion for users who prefer it */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -64,5 +60,51 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+@keyframes policy-pass {
+  from {
+    opacity: 0.35;
+    transform: translateX(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-policy-pass {
+  animation: policy-pass 300ms ease-out both;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 

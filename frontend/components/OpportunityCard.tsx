@@ -1,10 +1,13 @@
 'use client';
 
+import {useEffect, useState} from 'react';
+
 interface OpportunityCardProps {
   quote: {
     quoteId: string;
     price: string;
     size: string;
+    minCollateralOut: string;
     expiry: string;
     execute: boolean;
     healthFactor: number;
@@ -31,6 +34,15 @@ function healthStatus(hf: number): { label: string; color: string } {
 }
 
 export default function OpportunityCard({ quote, loading }: OpportunityCardProps) {
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    const updateNow = () => setNow(Math.floor(Date.now() / 1000));
+    updateNow();
+    const interval = window.setInterval(updateNow, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const isLive = quote?.source === 'live';
   const healthFactor = quote?.healthFactor ?? 0;
   const collateral = quote?.collateralUsd ?? 0;
@@ -41,7 +53,8 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
   const status = healthStatus(healthFactor);
   const quoteSizeUsd = formatUsd(liquidationSizeUsd);
   const discountPct = `${(discountBps / 100).toFixed(2)}%`;
-  const expiresIn = quote ? Math.max(0, Number(quote.expiry) - Math.floor(Date.now() / 1000)) : 0;
+  const minCollateralWeth = quote ? (Number(BigInt(quote.minCollateralOut)) / 1e18).toFixed(4) : '0.0000';
+  const expiresIn = quote ? Math.max(0, Number(quote.expiry) - now) : 0;
   const expiresInMin = Math.floor(expiresIn / 60);
   const expiresInSec = expiresIn % 60;
 
@@ -67,7 +80,7 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
           <p className="mt-1 text-sm text-text-secondary">Borrower position eligible for liquidation</p>
         </div>
         {!isLive && (
-          <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+          <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">
             DEMO DATA
           </span>
         )}
@@ -110,6 +123,10 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
               <p className="mt-0.5 font-medium text-text-primary tabular-nums">{discountPct}</p>
             </div>
             <div>
+              <p className="text-xs text-text-secondary">Minimum Collateral</p>
+              <p className="mt-0.5 font-medium text-text-primary tabular-nums">{minCollateralWeth} WETH</p>
+            </div>
+            <div>
               <p className="text-xs text-text-secondary">Expires in</p>
               <p className="mt-0.5 font-medium text-text-primary tabular-nums">
                 {expiresInMin > 0 ? `${expiresInMin}m ` : ''}{expiresInSec}s
@@ -117,7 +134,7 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
             </div>
           </div>
           {!isLive && (
-            <p className="mt-2 text-xs text-warning">SIMULATED CRE QUOTE</p>
+            <p className="mt-2 text-xs font-semibold text-warning">SIMULATED CRE QUOTE</p>
           )}
         </div>
       )}

@@ -87,6 +87,7 @@ export interface Quote {
   quoteId: string;
   price: string;
   size: string;
+  minCollateralOut: string;
   expiry: string;
   execute: boolean;
   healthFactor: number;
@@ -263,6 +264,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         quoteId: '0x' + Buffer.from('mock-cre-quote-' + now.toString()).toString('hex').slice(0, 64),
         price: MOCK_QUOTE_PRICE_BPS.toString(),
         size: MOCK_QUOTE_SIZE.toString(),
+        // DEMO DATA: WETH raw units (18 decimals), formatted by the UI.
+        minCollateralOut: '250000000000000000',
         expiry: (now + 3600).toString(),
         execute: true,
         healthFactor: MOCK_HEALTH_FACTOR,
@@ -272,7 +275,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         executionPriceUsd: MOCK_EXECUTION_PRICE_USD,
         discountBps: MOCK_DISCOUNT_BPS,
         simulated: true,
-        source: mode === 'live' ? 'live' : 'demo',
+        // This path does not read the registry; never present generated demo data as live.
+        source: 'demo',
       };
       setLatestQuote(baseQuote);
     } catch (error: unknown) {
@@ -363,11 +367,11 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     value: Hex = '0x0',
     enforceClientAllowlist = true,
   ) => {
-    if (!embeddedWallet) return;
+    if (!embeddedWallet) return false;
     if (!signerAdded) {
       addLog('Scoped signer not added yet', 'policy');
       addPolicyLog('Transaction blocked: scoped signer not added', 'policy');
-      return;
+      return false;
     }
     const allowed = [AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, ALLOWED_ADDRESS, USDC_ADDRESS].filter(Boolean) as string[];
     const lowerTo = to.toLowerCase();
@@ -375,7 +379,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     if (enforceClientAllowlist && !isAllowed) {
       addLog('Transaction blocked by client-side allowlist: ' + to.slice(0, 10) + '... is not an allowed contract', 'policy');
       addPolicyLog('Transaction blocked by client-side allowlist: ' + to.slice(0, 10) + '...', 'policy');
-      return;
+      return false;
     }
     try {
       addLog('Sending transaction to ' + to.slice(0, 10) + '...', 'info');
@@ -385,6 +389,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Transaction succeeded: ' + hash.hash, 'success');
       addPolicyLog('Transaction allowed: ' + hash.hash.slice(0, 10) + '...', 'success');
       setTimeout(() => fetchBalances(embeddedWallet.address), 3000);
+      return true;
     } catch (error: unknown) {
       const msg = errorMessage(error);
       if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('reject') || msg.toLowerCase().includes('deny')) {
@@ -397,6 +402,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         addLog('Transaction failed: ' + msg, 'error');
         addPolicyLog('Transaction failed: ' + msg, 'error');
       }
+      return false;
     }
   }, [embeddedWallet, signerAdded, addLog, addPolicyLog, sendTransaction, fetchBalances]);
 
@@ -445,7 +451,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         salt.slice(2).padStart(64, '0'),
       ].join('');
       const data = encodeAquaShip(BACKSTOP_APP_ADDRESS, strategyBody, [USDC_ADDRESS], [BigInt(1000 * 1e6)]);
-      await sendFromEmbeddedWallet(AQUA_REGISTRY as Hex, data as Hex, '0x0');
+      const submitted = await sendFromEmbeddedWallet(AQUA_REGISTRY as Hex, data as Hex, '0x0');
+      if (!submitted) return;
       const next: Strategy = {
         maker,
         tokenIn,

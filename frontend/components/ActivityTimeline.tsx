@@ -35,7 +35,7 @@ export default function ActivityTimeline({ events }: ActivityTimelineProps) {
                   <div className="flex items-center gap-2">
                     <p className={`text-sm font-medium ${style.text}`}>{event.label}</p>
                     {event.simulated && (
-                      <span className="inline-flex items-center rounded-full bg-warning/10 border border-warning/30 px-2 py-0.5 text-xs font-medium text-warning">SIMULATED</span>
+                      <span className="inline-flex items-center rounded-full border border-border bg-surface-raised px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-secondary">SIMULATED</span>
                     )}
                   </div>
                   {event.description && <p className="text-xs text-text-secondary">{event.description}</p>}
