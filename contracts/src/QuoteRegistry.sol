@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReceiverTemplate} from "./ReceiverTemplate.sol";
 import {IReceiver} from "./IReceiver.sol";
 
@@ -13,6 +12,9 @@ contract QuoteRegistry is ReceiverTemplate {
         bytes32 quoteId;
         uint256 price;
         uint256 size;
+        // Minimum collateral the maker must receive, in the collateral token's raw units.
+        // For WETH this is an 18-decimal quantity, never a USD or USDC value.
+        uint256 minCollateralOut;
         uint64  expiry;
         bool    execute;
         bool    consumed;
@@ -32,12 +34,25 @@ contract QuoteRegistry is ReceiverTemplate {
 
     error InvalidQuote();
     error QuoteAlreadyExists();
+    error BackstopAppAlreadySet();
+    error UnauthorizedBackstopApp();
+
+    address public backstopApp;
 
     /// @notice Constructor sets the authorized Chainlink Forwarder address
     /// @param _forwarderAddress The address of the Chainlink KeystoneForwarder contract
     constructor(
         address _forwarderAddress
     ) ReceiverTemplate(_forwarderAddress) {}
+
+    /// @notice Permanently authorize the app allowed to consume quotes.
+    /// @dev Set after both contracts are deployed; an arbitrary caller must never
+    /// be able to invalidate a valid CRE quote.
+    function setBackstopApp(address app) external onlyOwner {
+        if (backstopApp != address(0)) revert BackstopAppAlreadySet();
+        if (app == address(0)) revert UnauthorizedBackstopApp();
+        backstopApp = app;
+    }
 
     /// @notice Returns whether a quote ID exists in the registry
     /// @param quoteId The quote ID to check
@@ -52,8 +67,8 @@ contract QuoteRegistry is ReceiverTemplate {
     function _processReport(bytes calldata report) internal override {
         // Decode the application payload
         // Expected layout: (bytes32 quoteId, uint256 price, uint256 size, uint64 expiry, bool execute)
-        (bytes32 quoteId, uint256 price, uint256 size, uint64 expiry, bool execute) = 
-            abi.decode(report, (bytes32, uint256, uint256, uint64, bool));
+        (bytes32 quoteId, uint256 price, uint256 size, uint256 minCollateralOut, uint64 expiry, bool execute) =
+            abi.decode(report, (bytes32, uint256, uint256, uint256, uint64, bool));
 
         // Validate quote data
         if (quoteId == bytes32(0)) {
@@ -69,6 +84,7 @@ contract QuoteRegistry is ReceiverTemplate {
             quoteId: quoteId,
             price: price,
             size: size,
+            minCollateralOut: minCollateralOut,
             expiry: expiry,
             execute: execute,
             consumed: false
@@ -88,6 +104,7 @@ contract QuoteRegistry is ReceiverTemplate {
     /// @notice Marks a quote as consumed after successful execution
     /// @dev Only callable by the BackstopApp to prevent double-spending
     function consumeQuote(bytes32 quoteId) external {
+        if (msg.sender != backstopApp) revert UnauthorizedBackstopApp();
         require(quoteExists[quoteId], "Quote does not exist");
         require(!quoteConsumed[quoteId], "Quote already consumed");
         quoteConsumed[quoteId] = true;

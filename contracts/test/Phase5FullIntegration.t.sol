@@ -18,7 +18,7 @@ contract Phase5FullIntegrationTest is Phase3CRETest {
         vm.prank(forwarder);
         quoteRegistry.onReport(
             "",
-            abi.encode(quoteId, 200, quoteSize, uint64(block.timestamp + 1 hours), true)
+            abi.encode(quoteId, 200, quoteSize, quoteSize, uint64(block.timestamp + 1 hours), true)
         );
 
         // A borrower becomes unhealthy: 2,000 WETH collateral against 3,000 USDC debt.

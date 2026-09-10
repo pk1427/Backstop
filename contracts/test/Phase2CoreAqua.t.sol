@@ -34,11 +34,13 @@ contract Phase2CoreAquaTest is Test {
         quoteRegistry = new QuoteRegistry(address(0xABCD));
         backstopApp = new LiquidationBackstopApp(IAqua(address(aqua)), quoteRegistry);
         lendingPool = new MockLendingPool();
-        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
-        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter);
 
         usdc = new MockERC20("USDC", "USDC");
         weth = new MockERC20("WETH", "WETH");
+        MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
+        liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter, address(backstopApp));
+        backstopApp.setExecutor(address(liquidatorExecutor));
+        quoteRegistry.setBackstopApp(address(backstopApp));
 
         // Fund maker with USDC and WETH
         usdc.mint(maker, 10_000e18);
@@ -93,7 +95,7 @@ contract Phase2CoreAquaTest is Test {
 
         // Set a valid quote via QuoteRegistry
         vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, usdcPullAmount, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, usdcPullAmount, usdcPullAmount, uint64(block.timestamp + 1 hours), true));
 
         // Setup under-collateralized borrower for liquidation
         address borrower = address(0x4444);
@@ -155,7 +157,7 @@ contract Phase2CoreAquaTest is Test {
 
         // Set an expired quote
         vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, 1_000e18, uint64(block.timestamp - 1), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, 1_000e18, 1_000e18, uint64(block.timestamp - 1), true));
 
         bytes memory takerData = abi.encode(address(0x4444), 1_000e18);
 
@@ -180,7 +182,7 @@ contract Phase2CoreAquaTest is Test {
 
         // Set a quote larger than maxTrade (1_000e18)
         vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 200, 2_000e18, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 200, 2_000e18, 2_000e18, uint64(block.timestamp + 1 hours), true));
 
         bytes memory takerData = abi.encode(address(0x4444), 2_000e18);
 
@@ -205,7 +207,7 @@ contract Phase2CoreAquaTest is Test {
 
         // Set a quote with price below minDiscountBps (100)
         vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 50, 1_000e18, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 50, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true));
 
         bytes memory takerData = abi.encode(address(0x4444), 1_000e18);
 
@@ -228,7 +230,7 @@ contract Phase2CoreAquaTest is Test {
 
         // Set a quote with price above maxDiscountBps (500)
         vm.prank(address(0xABCD));
-        quoteRegistry.onReport("", abi.encode(quoteId, 600, 1_000e18, uint64(block.timestamp + 1 hours), true));
+        quoteRegistry.onReport("", abi.encode(quoteId, 600, 1_000e18, 1_000e18, uint64(block.timestamp + 1 hours), true));
 
         bytes memory takerData = abi.encode(address(0x4444), 1_000e18);
 
