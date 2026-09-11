@@ -49,11 +49,10 @@ contract DecimalsStressTest is Test {
         aqua = new Aqua();
         quoteRegistry = new QuoteRegistry(forwarder);
         backstopApp = new LiquidationBackstopApp(IAqua(address(aqua)), quoteRegistry);
-        lendingPool = new MockLendingPool();
 
-        // Deploy tokens BEFORE creating the adapter so their addresses are valid
         usdc = new MockERC20WithDecimals("USDC", "USDC", 6);
         weth = new MockERC20WithDecimals("WETH", "WETH", 18);
+        lendingPool = new MockLendingPool(IERC20(address(weth)));
 
         MockLendingPoolAdapter adapter = new MockLendingPoolAdapter(lendingPool, address(usdc), address(weth));
         liquidatorExecutor = new LiquidatorExecutor(IAqua(address(aqua)), adapter, address(backstopApp));

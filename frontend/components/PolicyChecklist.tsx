@@ -7,7 +7,7 @@ interface PolicyChecklistProps {
 
 export default function PolicyChecklist({ checks, overallPassed }: PolicyChecklistProps) {
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+    <div className="protocol-card rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Execution Check</p>
 
       <div className="mt-3 space-y-2">

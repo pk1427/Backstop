@@ -1,13 +1,21 @@
 'use client';
 
+import Link from 'next/link';
 import {useBackstop} from '@/hooks/useBackstop';
-import {Header, Navigation, OpportunityCard, PolicyChecklist, SponsorFooter} from '@/components';
+import {Header, Navigation, OpportunityCard} from '@/components';
+
+const TEST_POSITIONS = [
+  {address: '0x76cd707D25685Dc7956Ed5d4e41D086845A1fB92', label: 'Position 01', health: '1.65', collateral: '0.010 WETH', debt: '20 USDC', status: 'Healthy'},
+  {address: '0x85D737640a6b86EBfd1AcEB9BE9992c90020bA1c', label: 'Position 02', health: '2.06', collateral: '0.010 WETH', debt: '32 USDC', status: 'Healthy'},
+  {address: '0xf62c155Eb012303Cbba80cb246De20E05dd57051', label: 'Position 03', health: '1.06', collateral: '0.004 WETH', debt: '12.5 USDC', status: 'Near threshold'},
+  {address: '0x0Bc87b3FBbCBEb04595A503fbCe1d627cEd222ad', label: 'Position 04', health: '3.30', collateral: '0.004 WETH', debt: '8 USDC', status: 'Healthy'},
+];
 
 export default function OpportunitiesPage() {
   const backstop = useBackstop();
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-black">
+    <div className="protocol-surface flex min-h-screen flex-col bg-[#030816]">
       <Header
         systemStatus={backstop.systemStatus}
         statusLabel={backstop.statusLabel}
@@ -16,14 +24,14 @@ export default function OpportunitiesPage() {
         onLogout={backstop.logout}
       />
       <Navigation items={[
-        {label: 'Overview', href: '/overview', active: false},
+        {label: 'Dashboard', href: '/overview', active: false},
         {label: 'Strategy', href: '/strategy', active: false},
-        {label: 'Opportunities', href: '/opportunities', active: true},
+        {label: 'Liquidations', href: '/opportunities', active: true},
         {label: 'Activity', href: '/activity', active: false},
       ]} />
 
       <main className="flex-1">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
           {!backstop.authenticated ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <div className="h-12 w-12 rounded-xl bg-zinc-900 dark:bg-zinc-100 flex items-center justify-center mb-4">
@@ -38,31 +46,31 @@ export default function OpportunitiesPage() {
               </button>
             </div>
           ) : (
-            <div className="flex flex-col gap-6">
-              <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-8">
+              <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Opportunities</h1>
+                  <p className="text-xs font-semibold tracking-[.16em] text-cyan-300">LIQUIDATION MODE</p><h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Liquidation market</h1>
                   <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                     {backstop.mode === 'live' ? 'Live Aave V3 Sepolia positions' : 'Simulated demo opportunity'}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex rounded-xl border border-[#29405f] bg-[#071023] p-1">
                   <button
-                    onClick={() => backstop.mode === 'live' ? undefined : undefined}
-                    className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
+                    onClick={() => backstop.setMode('demo')}
+                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
                       backstop.mode === 'demo'
-                        ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300'
-                        : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                        ? 'bg-cyan-400/15 text-cyan-300'
+                        : 'text-slate-500 hover:text-slate-200'
                     }`}
                   >
                     DEMO
                   </button>
                   <button
-                    onClick={() => {}}
-                    className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
+                    onClick={() => backstop.setMode('live')}
+                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
                       backstop.mode === 'live'
-                        ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                        ? 'bg-cyan-400/15 text-cyan-300'
+                        : 'text-slate-500 hover:text-slate-200'
                     }`}
                   >
                     LIVE
@@ -70,124 +78,10 @@ export default function OpportunitiesPage() {
                 </div>
               </div>
 
-              {backstop.mode === 'live' && (
-                <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Borrower Address</p>
-                  <div className="mt-3 flex gap-3">
-                    <input
-                      type="text"
-                      value={backstop.borrowerAddress}
-                      onChange={(e) => backstop.setBorrowerAddress(e.target.value)}
-                      placeholder="0x... borrower address"
-                      className="flex-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:border-zinc-400 dark:focus:border-zinc-600 focus:outline-none"
-                    />
-                    <button
-                      onClick={() => {}}
-                      disabled={!backstop.borrowerAddress}
-                      className="rounded-lg bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors"
-                    >
-                      Fetch
-                    </button>
-                  </div>
-                  {backstop.liveOpportunityError && (
-                    <p className="mt-2 text-xs text-red-600 dark:text-red-400">{backstop.liveOpportunityError}</p>
-                  )}
-                  {backstop.aavePosition && (
-                    <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">Health Factor</p>
-                        <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">
-                          {backstop.aavePosition.healthFactor.toFixed(4)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">Eligible</p>
-                        <p className={`mt-0.5 font-medium ${backstop.aavePosition.eligible ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {backstop.aavePosition.eligible ? 'Yes' : 'No'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">Collateral (WETH)</p>
-                        <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">
-                          {backstop.aavePosition.collateralAmountFormatted} WETH
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">Debt (USDC)</p>
-                        <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">
-                          {backstop.aavePosition.debtAmountFormatted} USDC
-                        </p>
-                      </div>
-                      {backstop.aavePosition.eligibilityReason && (
-                        <div className="col-span-2">
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Reason</p>
-                          <p className="mt-0.5 text-xs text-zinc-700 dark:text-zinc-300">{backstop.aavePosition.eligibilityReason}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </section>
-              )}
+              {backstop.mode === 'live' && <section><div className="mb-4"><p className="text-xs font-semibold tracking-[.14em] text-cyan-300">LIVE AAVE POSITIONS</p><p className="mt-2 text-sm text-slate-400">Select a borrower to load its onchain Aave V3 Sepolia position.</p></div><div className="grid gap-4 md:grid-cols-2">{TEST_POSITIONS.map((position) => <PositionCard key={position.address} position={position} active={backstop.borrowerAddress.toLowerCase() === position.address.toLowerCase()} onSelect={() => backstop.setBorrowerAddress(position.address)} />)}</div></section>}
 
-              <OpportunityCard
-                quote={backstop.latestQuote}
-                loading={backstop.quoteLoading}
-              />
+              {backstop.mode === 'live' ? <LivePosition position={backstop.aavePosition} loading={backstop.liveOpportunityLoading} /> : <><OpportunityCard quote={backstop.latestQuote} loading={backstop.quoteLoading} /><div className="flex justify-end"><Link href="/opportunities/opportunity" className="rounded-xl border border-cyan-400/40 bg-cyan-400/10 px-4 py-2.5 text-sm font-semibold text-cyan-300 hover:bg-cyan-400/20">Review opportunity →</Link></div></>}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <PolicyChecklist checks={backstop.policyChecks} overallPassed={backstop.policyOverallPassed} />
-
-                <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Execution</p>
-                  {backstop.executionResult ? (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Execution complete</p>
-                        {backstop.executionResult.simulated && (
-                          <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">USDC Deployed</p>
-                          <p className="font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{backstop.executionResult.usdcDeployed}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">WETH Pushed</p>
-                          <p className="font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{backstop.executionResult.wethPushed}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Maker USDC</p>
-                          <p className="font-mono text-zinc-700 dark:text-zinc-300 tabular-nums">{backstop.executionResult.makerUsdcBefore} → {backstop.executionResult.makerUsdcAfter}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Maker WETH</p>
-                          <p className="font-mono text-zinc-700 dark:text-zinc-300 tabular-nums">{backstop.executionResult.makerWethBefore} → {backstop.executionResult.makerWethAfter}</p>
-                        </div>
-                      </div>
-                      <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 break-all">Tx: {backstop.executionResult.txHash}</p>
-                    </div>
-                  ) : (
-                    <div className="mt-3">
-                      <p className="text-sm text-zinc-500 dark:text-zinc-400">No execution yet.</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={backstop.simulateSwap}
-                          disabled={!backstop.strategy || !backstop.latestQuote || backstop.simulating}
-                          className="flex-1 rounded-lg bg-zinc-900 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors"
-                        >
-                          {backstop.simulating ? 'Executing...' : 'Execute Backstop'}
-                        </button>
-                        <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
-                      </div>
-                      {!backstop.strategy && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Ship a strategy first.</p>}
-                      {backstop.strategy && !backstop.latestQuote && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Waiting for quote...</p>}
-                    </div>
-                  )}
-                </section>
-              </div>
-
-              <SponsorFooter />
             </div>
           )}
         </div>
@@ -195,3 +89,8 @@ export default function OpportunitiesPage() {
     </div>
   );
 }
+
+function LivePosition({position, loading}: {position: ReturnType<typeof useBackstop>['aavePosition']; loading: boolean}) { if (loading) return <div className="protocol-card rounded-2xl p-6 text-sm text-slate-400">Reading Aave position…</div>; if (!position) return <div className="protocol-card rounded-2xl p-6 text-sm text-slate-400">Enter a borrower address to inspect its Aave position.</div>; const liquidatable = position.healthFactor < 1; return <section className="protocol-card rounded-2xl p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold tracking-[.14em] text-cyan-300">LIVE AAVE POSITION</p><p className="mt-2 text-lg font-semibold text-white">WETH collateral · USDC debt</p><p className="mt-1 text-sm text-slate-400">{position.borrower.slice(0, 6)}…{position.borrower.slice(-4)} · Ethereum Sepolia</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${liquidatable ? 'bg-red-400/10 text-red-300' : 'bg-cyan-400/10 text-cyan-300'}`}>{liquidatable ? 'LIQUIDATABLE' : 'MONITORED'}</span></div><div className="mt-6 grid grid-cols-3 gap-4 border-t border-[#243a5a] pt-5"><Metric label="Health factor" value={position.healthFactor.toFixed(3)} /><Metric label="Collateral" value={`${position.collateralAmountFormatted} WETH`} /><Metric label="Debt" value={`${position.debtAmountFormatted} USDC`} /></div>{!liquidatable && <p className="mt-5 text-sm text-slate-400">This position is healthy. Backstop will only create an execution quote if its health factor drops below 1.</p>}</section>; }
+function Metric({label, value}: {label: string; value: string}) { return <div><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold text-white">{value}</p></div>; }
+
+function PositionCard({position, active, onSelect}: {position: typeof TEST_POSITIONS[number]; active: boolean; onSelect: () => void}) { return <article className={`protocol-card rounded-2xl border p-5 transition ${active ? 'border-cyan-400/60 bg-cyan-400/5' : ''}`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-white">{position.label}</p><p className={`mt-1 text-xs font-semibold ${position.status === 'Near threshold' ? 'text-amber-300' : 'text-cyan-300'}`}>{position.status}</p></div><p className="text-2xl font-semibold text-white">{position.health}</p></div><p className="mt-4 font-mono text-xs text-slate-400">{position.address.slice(0, 10)}…{position.address.slice(-8)}</p><div className="mt-4 grid grid-cols-2 border-y border-[#243a5a] py-3 text-sm"><div><p className="text-xs text-slate-500">Collateral</p><p className="mt-1 text-slate-200">{position.collateral}</p></div><div><p className="text-xs text-slate-500">Debt</p><p className="mt-1 text-slate-200">{position.debt}</p></div></div><div className="mt-4 flex items-center justify-between"><button onClick={onSelect} className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">{active ? 'Selected' : 'View position'} →</button><a href={`https://sepolia.etherscan.io/address/${position.address}`} target="_blank" rel="noreferrer" className="text-xs font-medium text-slate-400 hover:text-white">Explorer ↗</a></div></article>; }

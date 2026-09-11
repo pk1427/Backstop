@@ -167,14 +167,18 @@ cre-workflow/
 | **1inch (Aqua)** | Custom `LiquidationBackstopApp` with immutable strategy bounds, atomic `pull()` → callback → `push()` settlement | `contracts/src/LiquidationBackstopApp.sol` (custom AquaApp), `contracts/src/LiquidatorExecutor.sol` (callback), `contracts/test/Phase2CoreAqua.t.sol` (Aqua mechanics) |
 | **Chainlink (CRE)** | `QuoteRegistry` with `onlyForwarder` auth, `handlerInTee`-shaped delivery path, mock CRE forwarder for demo | `contracts/src/QuoteRegistry.sol` (forwarder-only writes), `contracts/src/ReceiverTemplate.sol` (CRE auth), `contracts/test/Phase3CRE.t.sol` (quote auth + production flow), `contracts/test/Phase5FullIntegration.t.sol` (end-to-end mock CRE pipeline) |
 | **Privy** | Embedded wallet, scoped signer with policy, client-side allowlist, rejection demo | `frontend/app/overview/page.tsx` (login, signer, approve, ship, policy tests), `frontend/app/providers.tsx` (Privy provider config), `contracts/test/Phase1Spikes.t.sol` (Privy spike tests) |
-| **Aave (Sepolia)** | Adapter reads Aave V3 Sepolia pool, oracle, and pool-data-provider state via `eth_call`; eligibility and economics are computed onchain. No live liquidation has been executed or evidenced. | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/src/interfaces/ILendingAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol`, `contracts/test/AaveV3SepoliaAdapter.t.sol`, `frontend/hooks/useLiveAave.ts` |
+| **Aave (Sepolia)** | Live position reads via `eth_call`; `liquidationCall()` path implemented. **BLOCKER:** Sepolia pool (`0x6Ae43...`) does NOT expose `supply()` in its implementation (`0x0562453c...`). No new borrower positions can be created. | `contracts/src/adapters/AaveV3SepoliaAdapter.sol`, `contracts/test/AaveSepoliaVerification.t.sol`, `contracts/test/AaveV3SepoliaAdapter.t.sol` |
+| **Backstop App** | `0xF79BbBC1bB49c4368009B29f963DAF093f65d2C8` on Sepolia; executor: `0xFC5EFBdf44DE64D5496F6e81F96a55e9Eb5cD34B` (LiquidatorExecutor) | `contracts/src/LiquidationBackstopApp.sol` |
+| **QuoteRegistry** | `0x75E29B24980f82b8DA80f7EE544D76c1515516dB` on Sepolia | `contracts/src/QuoteRegistry.sol` |
+| **LiquidatorExecutor** | `0xFC5EFBdf44DE64D5496F6e81F96a55e9Eb5cD34B` on Sepolia | `contracts/src/LiquidatorExecutor.sol` |
+| **AaveV3SepoliaAdapter** | `0xFee5E6F4Aac9FB6B50C238c64C545Ff9a1cA8868` on Sepolia | `contracts/src/adapters/AaveV3SepoliaAdapter.sol` |
 
 ## Chainlink CRE Evidence (closed decision)
 
 Per the Chainlink prize page's explicit allowance of "CLI simulation **or** live deployment," this submission uses the following evidence:
 
 1. **CRE CLI simulation** captured at commit `900a8f6` (Sep 7, 2026). The full `handlerInTee` workflow shape, including `runtime.getSecret()` for the private discount curve and `runtime.usingTheDons().writeReport()` delivery, is implemented in `cre-workflow/my-workflow/workflow.ts`.
-2. **Live `QuoteRegistry`** deployed on Sepolia at `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` with `onlyForwarder` authentication.
+2. **Live `QuoteRegistry`** deployed on Sepolia at `0x75E29B24980f82b8DA80f7EE544D76c1515516dB` with `onlyForwarder` authentication.
 3. **Complete `handlerInTee` workflow source** in `cre-workflow/my-workflow/workflow.ts`.
 
 Live `cre workflow deploy` to Chainlink's staging/production DON is pending private-beta access enrollment. This is **explicitly out of scope for this submission**; the prize rules accept simulation as sufficient evidence, and we are exercising that allowance.
@@ -203,7 +207,7 @@ Live `cre workflow deploy` to Chainlink's staging/production DON is pending priv
 
 ## Deployment
 
-### Sepolia addresses (from broadcast)
+### Sepolia addresses (from latest broadcast)
 
 > **Audit note:** these artifacts predate the current hardening (executor binding,
 > quote-consumer authorization, and strategy-hash binding). Do not use the listed
@@ -212,8 +216,10 @@ Live `cre workflow deploy` to Chainlink's staging/production DON is pending priv
 
 | Contract | Address |
 |----------|---------|
-| `LiquidationBackstopApp` | `0xc258e902262e6110b2dd0d267a6b2ab2e470b539` |
-| `QuoteRegistry` | `0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95` |
+| `LiquidationBackstopApp` | `0xF79BbBC1bB49c4368009B29f963DAF093f65d2C8` |
+| `QuoteRegistry` | `0x75E29B24980f82b8DA80f7EE544D76c1515516dB` |
+| `LiquidatorExecutor` | `0xFC5EFBdf44DE64D5496F6e81F96a55e9Eb5cD34B` |
+| `AaveV3SepoliaAdapter` | `0xFee5E6F4Aac9FB6B50C238c64C545Ff9a1cA8868` |
 
 ### Aave V3 Sepolia addresses (verified from aave-dao/aave-address-book)
 
@@ -241,10 +247,28 @@ forge script script/DeployBackstopApp.s.sol:DeployBackstopApp --rpc-url $SEPOLIA
 |-----------|--------|----------|
 | **Frontend** | Running on Sepolia; Privy login, scoped signer, client-side allowlist, and Aqua `ship()` are live flows | UI in `frontend/` |
 | **Aave V3 Sepolia reads** | Live `eth_call` reads of pool, oracle, and pool-data-provider; no state mutations | `frontend/hooks/useLiveAave.ts`, `contracts/src/adapters/AaveV3SepoliaAdapter.sol` |
-| **Aave liquidation** | **Not executed.** `liquidationCall()` is implemented but has not been called on Sepolia. The adapter is integration-ready code. | Solidity implementation only |
+| **Aave supply (blocker)** | **Sepolia Aave Pool at `0x6Ae43...` does NOT expose `supply()` in its implementation (`0x0562453c...`).** Comprehensive diagnostics confirm: pool is not paused, WETH is an active reserve, borrower has WETH and allowance, but `supply(address,uint256,address)` and `supply(address,uint256,address,uint16)` both revert with `EvmError: Revert` and no data. No new borrower position can be created on this pool until the Sepolia deployment is updated. | `contracts/script/AaveDiagnostic.s.sol` (removed; findings documented here) |
+| **Aave liquidation** | `liquidationCall()` is implemented in `AaveV3SepoliaAdapter.sol` and `LiquidatorExecutor.sol`. Cannot be demonstrated live until a liquidatable position exists. | Solidity implementation + 63/63 Foundry tests |
 | **CRE (Chainlink)** | CLI simulation captured; live `cre workflow deploy` pending private-beta access. The prize rules accept simulation as sufficient evidence. | `cre-workflow/my-workflow/workflow.ts` |
 | **QuoteRegistry** | Simulated in UI; the onchain registry is deployed but quotes in the demo are mock-generated | `contracts/src/QuoteRegistry.sol` |
-| **Atomic settlement (Aqua)** | Proven in Foundry mock/fork tests; not evidenced as a completed live Sepolia transaction | `contracts/test/Phase2CoreAqua.t.sol`, `contracts/test/Phase5FullIntegration.t.sol` |
+| **Atomic settlement (Aqua)** | Proven in Foundry mock/fork tests (63/63 green); not evidenced as a completed live Sepolia transaction | `contracts/test/Phase5FullIntegration.t.sol` |
+| **LiquidatorExecutor.execute()** | New public trigger added; allows arbitrary users to initiate liquidation through the Backstop policy layer. Events: `LiquidationRequested`, `LiquidationCompleted`, `LiquidationFailed`. | `contracts/src/LiquidatorExecutor.sol` |
+
+## Known Sepolia Blockers
+
+1. **Aave Pool `supply()` unavailable**: The Sepolia Aave V3 pool (`0x6Ae43...`) implementation (`0x0562453c...`) has `getReserveData` and `getUserAccountData` but NOT `supply`. This means new borrower positions cannot be created. The pool appears to be a limited deployment for reading state and executing liquidations, not for creating new supply positions.
+2. **Maker USDC**: Maker `0x659f...` holds 0 USDC at the Aave-book address `0x94a9...`. The 326 USDC at `0x1c7D...` is not recognized by Aave.
+
+## What works (tested)
+
+- All 63 Foundry tests pass (`forge test --via-ir`)
+- TypeScript typecheck passes (`npx tsc --noEmit`)
+- Frontend build passes (`npm run build`)
+- `LiquidatorExecutor.execute()` trigger + full Aqua settlement in mock tests
+- QuoteRegistry CRE forwarder authentication
+- Replay protection
+- Policy validation (discount bounds, size limits, expiry)
+- Aave adapter reads (oracle prices, reserve config, user account data, eligibility)
 
 ## License
 

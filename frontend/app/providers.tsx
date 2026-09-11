@@ -3,18 +3,18 @@
 import {PrivyProvider} from '@privy-io/react-auth';
 import {defineChain} from 'viem';
 
-const sepolia = defineChain({
-  id: 11155111,
-  name: 'Ethereum Sepolia',
-  network: 'ethereum-sepolia',
+const baseSepolia = defineChain({
+  id: 84532,
+  name: 'Base Sepolia',
+  network: 'base-sepolia',
   nativeCurrency: {
     name: 'Sepolia ETH',
     symbol: 'ETH',
     decimals: 18,
   },
   rpcUrls: {
-    default: {http: ['https://ethereum-sepolia-rpc.publicnode.com']},
-    public: {http: ['https://ethereum-sepolia-rpc.publicnode.com']},
+    default: {http: ['https://sepolia.base.org']},
+    public: {http: ['https://sepolia.base.org']},
   },
 });
 
@@ -25,11 +25,11 @@ export default function Providers({children}: {children: React.ReactNode}) {
       config={{
         embeddedWallets: {
           ethereum: {
-            createOnLogin: 'users-without-wallets',
+            createOnLogin: 'off',
           },
         },
-        defaultChain: sepolia,
-        supportedChains: [sepolia],
+        defaultChain: baseSepolia,
+        supportedChains: [baseSepolia],
       }}
     >
       {children}

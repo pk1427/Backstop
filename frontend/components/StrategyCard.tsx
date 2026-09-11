@@ -23,7 +23,7 @@ function toPercent(bps: string) {
 export default function StrategyCard({ strategy, onManage }: StrategyCardProps) {
   if (!strategy) {
     return (
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+      <div className="protocol-card rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Active Strategy</p>
@@ -36,7 +36,7 @@ export default function StrategyCard({ strategy, onManage }: StrategyCardProps) 
   }
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+    <div className="protocol-card rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Active Strategy</p>

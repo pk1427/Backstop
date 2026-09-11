@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #030816;
+  --foreground: #eef5ff;
 }
 
 @theme inline {
@@ -12,15 +12,28 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Backstop's visual system: a restrained adaptation of the supplied Xyra reference. */
+.protocol-surface {
+  background-color: #030816;
+  background-image: linear-gradient(rgba(54, 93, 141, .09) 1px, transparent 1px), linear-gradient(90deg, rgba(54, 93, 141, .09) 1px, transparent 1px), radial-gradient(circle at 8% 5%, rgba(0, 168, 255, .13), transparent 29rem), radial-gradient(circle at 88% 35%, rgba(91, 73, 255, .13), transparent 25rem);
+  background-size: 72px 72px, 72px 72px, auto, auto;
+}
+
+.protocol-card { border-color: rgba(86, 128, 177, .27) !important; background: linear-gradient(135deg, rgba(12, 21, 43, .94), rgba(5, 10, 25, .94)) !important; box-shadow: inset 0 1px rgba(255,255,255,.035), 0 18px 45px rgba(0,0,0,.2); }
+.protocol-card:hover { border-color: rgba(40, 177, 255, .46) !important; }
+.protocol-surface .bg-white, .protocol-surface .bg-zinc-50 { background: linear-gradient(135deg, rgba(12, 21, 43, .94), rgba(5, 10, 25, .94)) !important; }
+.protocol-surface .bg-zinc-900 { background-color: #080f22 !important; }
+.protocol-surface .border-zinc-200, .protocol-surface .border-zinc-100 { border-color: rgba(86, 128, 177, .27) !important; }
+.protocol-surface .text-zinc-900 { color: #edf5ff !important; }
+.protocol-surface .text-zinc-700, .protocol-surface .text-zinc-600 { color: #afbed5 !important; }
+.protocol-surface .text-zinc-500, .protocol-surface .text-zinc-400 { color: #71819d !important; }
+.signal-dot { animation: signal-pulse 2.2s ease-in-out infinite; }
+.hero-orb { animation: float-orb 8s ease-in-out infinite; }
+@keyframes signal-pulse { 50% { opacity: .35; box-shadow: 0 0 0 8px rgba(28, 181, 255, 0); } }
+@keyframes float-orb { 50% { transform: translate3d(-14px, 18px, 0) scale(1.04); } }

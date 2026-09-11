@@ -73,7 +73,9 @@ const ORACLE_ABI = [
 ];
 
 const SELECTORS = {
-  getUserAccountData: '0xfa78107a',
+  // getUserAccountData(address) — verified against the deployed Aave V3
+  // Sepolia pool. The former selector targeted a different function.
+  getUserAccountData: '0xbf92857c',
   getUserReserveData: '0x28dd2d01',
   getReserveConfigurationData: '0x3e150141',
   getAssetPrice: '0xb3596f07',
@@ -95,7 +97,8 @@ async function ethCall(to: string, data: string): Promise<string> {
 }
 
 function decodeUint256(hex: string): bigint {
-  return BigInt(hex.replace(/^0x/, '') || '0');
+  const data = hex.replace(/^0x/, '');
+  return BigInt(`0x${data || '0'}`);
 }
 
 function formatUnits(value: bigint, decimals: number): string {
@@ -154,7 +157,8 @@ export async function fetchLiveAavePosition(borrower: string): Promise<LiveAaveP
 
   const wethReserveDataHex = await ethCall(
     AAVE_POOL_DATA_PROVIDER,
-    SELECTORS.getUserReserveData + borrower.slice(2).padStart(64, '0') + AAVE_WETH.slice(2).padStart(64, '0')
+    // Aave Data Provider signature: getUserReserveData(asset, user)
+    SELECTORS.getUserReserveData + AAVE_WETH.slice(2).padStart(64, '0') + borrower.slice(2).padStart(64, '0')
   );
   
   const wethReserveData = abiDecode(wethReserveDataHex, [
@@ -173,7 +177,7 @@ export async function fetchLiveAavePosition(borrower: string): Promise<LiveAaveP
 
   const usdcReserveDataHex = await ethCall(
     AAVE_POOL_DATA_PROVIDER,
-    SELECTORS.getUserReserveData + borrower.slice(2).padStart(64, '0') + AAVE_USDC.slice(2).padStart(64, '0')
+    SELECTORS.getUserReserveData + AAVE_USDC.slice(2).padStart(64, '0') + borrower.slice(2).padStart(64, '0')
   );
   
   const usdcReserveData = abiDecode(usdcReserveDataHex, [

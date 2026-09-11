@@ -1,13 +1,16 @@
 'use client';
 
 import {useBackstop} from '@/hooks/useBackstop';
-import {Header, Navigation, CapitalCard, StrategyCard, OpportunityCard, PolicyChecklist, SponsorFooter} from '@/components';
+import Link from 'next/link';
+import {useRouter} from 'next/navigation';
+import {Header, Navigation, StrategyCard, OpportunityCard, StatCard} from '@/components';
 
 export default function OverviewPage() {
   const backstop = useBackstop();
+  const router = useRouter();
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-black">
+    <div className="protocol-surface flex min-h-screen flex-col bg-[#030816]">
       <Header
         systemStatus={backstop.systemStatus}
         statusLabel={backstop.statusLabel}
@@ -16,14 +19,14 @@ export default function OverviewPage() {
         onLogout={backstop.logout}
       />
       <Navigation items={[
-        {label: 'Overview', href: '/overview', active: true},
+        {label: 'Dashboard', href: '/overview', active: true},
         {label: 'Strategy', href: '/strategy', active: false},
-        {label: 'Opportunities', href: '/opportunities', active: false},
+        {label: 'Liquidations', href: '/opportunities', active: false},
         {label: 'Activity', href: '/activity', active: false},
       ]} />
 
       <main className="flex-1">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
           {!backstop.authenticated ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <div className="h-12 w-12 rounded-xl bg-zinc-900 dark:bg-zinc-100 flex items-center justify-center mb-4">
@@ -42,7 +45,9 @@ export default function OverviewPage() {
               </button>
             </div>
           ) : (
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-8">
+              <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-semibold tracking-[.16em] text-cyan-300">CAPITAL MODE</p><h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Your authorized capital</h2><p className="mt-2 text-sm text-zinc-500">A live view of the limits protecting your self-custodied USDC.</p></div><Link href="/strategy" className="rounded-xl border border-cyan-400/40 bg-cyan-400/10 px-4 py-2.5 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-400/20">Manage strategy</Link></div>
+              <div className="grid divide-y divide-[#233552] rounded-2xl border border-[#233552] bg-[#070e20]/80 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4"><StatCard label="USDC available" value={backstop.usdcBalance ? `$${Number(backstop.usdcBalance).toLocaleString()}` : '—'} /><StatCard label="Authorized capital" value={backstop.strategy ? `$${backstop.strategy.maxTrade}` : '$0'} /><StatCard label="Strategy status" value={backstop.strategy ? 'Active' : 'Setup'} /><StatCard label="Eligible now" value={backstop.latestQuote?.healthFactor && backstop.latestQuote.healthFactor < 1 ? '1' : '0'} subtext="liquidations" /></div>
               {backstop.systemStatus !== 'active' && (
                 <div className={`rounded-xl border p-4 ${
                   backstop.systemStatus === 'action-required' ? 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950' :
@@ -76,79 +81,10 @@ export default function OverviewPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <CapitalCard
-                  ethBalance={backstop.ethBalance}
-                  usdcBalance={backstop.usdcBalance}
-                  walletAddress={backstop.embeddedWallet?.address}
-                  network={`Sepolia (${process.env.NEXT_PUBLIC_CHAIN_ID || '11155111'})`}
-                  lastUpdated={backstop.lastUpdated}
-                  onRefresh={backstop.refreshBalances}
-                  refreshing={backstop.balancesLoading}
-                />
+              <StrategyCard strategy={backstop.strategy} onManage={() => router.push('/strategy')} />
 
-                <StrategyCard strategy={backstop.strategy} />
-              </div>
+              <section><div className="mb-4 flex items-center justify-between"><div><p className="text-xs font-semibold tracking-[.14em] text-cyan-300">LIQUIDATION MARKET</p><h3 className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">Live Aave monitoring</h3></div><Link href="/opportunities" className="text-sm font-medium text-cyan-300 hover:text-cyan-200">Open market →</Link></div>{backstop.latestQuote ? <><OpportunityCard quote={backstop.latestQuote} loading={backstop.quoteLoading} /><Link href="/opportunities/opportunity" className="mt-4 inline-flex text-sm font-semibold text-cyan-300 hover:text-cyan-200">Review opportunity →</Link></> : <div className="protocol-card rounded-2xl p-6"><p className="font-medium text-zinc-100">No eligible liquidations right now</p><p className="mt-2 text-sm text-slate-400">Backstop is monitoring the configured live Aave position. A quote is created only when its health factor falls below 1.</p></div>}</section>
 
-              <OpportunityCard
-                quote={backstop.latestQuote}
-                loading={backstop.quoteLoading}
-              />
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <PolicyChecklist checks={backstop.policyChecks} overallPassed={backstop.policyOverallPassed} />
-
-                <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Execution</p>
-                  {backstop.executionResult ? (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Execution complete</p>
-                        {backstop.executionResult.simulated && (
-                          <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">USDC Deployed</p>
-                          <p className="font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{backstop.executionResult.usdcDeployed}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">WETH Pushed</p>
-                          <p className="font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{backstop.executionResult.wethPushed}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Maker USDC</p>
-                          <p className="font-mono text-zinc-700 dark:text-zinc-300 tabular-nums">{backstop.executionResult.makerUsdcBefore} → {backstop.executionResult.makerUsdcAfter}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Maker WETH</p>
-                          <p className="font-mono text-zinc-700 dark:text-zinc-300 tabular-nums">{backstop.executionResult.makerWethBefore} → {backstop.executionResult.makerWethAfter}</p>
-                        </div>
-                      </div>
-                      <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 break-all">Tx: {backstop.executionResult.txHash}</p>
-                    </div>
-                  ) : (
-                    <div className="mt-3">
-                      <p className="text-sm text-zinc-500 dark:text-zinc-400">No execution yet.</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={backstop.simulateSwap}
-                          disabled={!backstop.strategy || !backstop.latestQuote || backstop.simulating}
-                          className="flex-1 rounded-lg bg-zinc-900 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors"
-                        >
-                          {backstop.simulating ? 'Executing...' : 'Execute Backstop'}
-                        </button>
-                        <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">SIMULATED</span>
-                      </div>
-                      {!backstop.strategy && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Ship a strategy first.</p>}
-                      {backstop.strategy && !backstop.latestQuote && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Waiting for quote...</p>}
-                    </div>
-                  )}
-                </section>
-              </div>
-
-              <SponsorFooter />
             </div>
           )}
         </div>

@@ -14,6 +14,7 @@ const WETH_ADDRESS = process.env.NEXT_PUBLIC_WETH_ADDRESS || '';
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || '11155111');
 const QUOTE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_QUOTE_REGISTRY_ADDRESS || '0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95';
+const DEFAULT_LIVE_BORROWER = process.env.NEXT_PUBLIC_LIVE_BORROWER_ADDRESS || '0x659f1ddf3Afa31029B990D2202Df8B2094eE012E';
 
 // Aave V3 Sepolia addresses from aave-dao/aave-address-book
 const AAVE_POOL = process.env.NEXT_PUBLIC_AAVE_POOL_ADDRESS || '0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951';
@@ -69,6 +70,13 @@ export interface Strategy {
   maxDiscountBps: string;
   expiry: string;
   salt: string;
+}
+
+export interface StrategyInput {
+  maxTrade: string;
+  minDiscountBps: string;
+  maxDiscountBps: string;
+  durationHours: string;
 }
 
 export interface Quote {
@@ -156,18 +164,20 @@ export interface BackstopState {
   policyChecks: { label: string; passed: boolean; detail?: string }[];
   policyOverallPassed: boolean;
   mode: 'demo' | 'live';
+  setMode: (mode: 'demo' | 'live') => void;
   aavePosition: LiveOpportunityData | null;
   liveOpportunityLoading: boolean;
   liveOpportunityError: string | null;
   borrowerAddress: string;
   setBorrowerAddress: (address: string) => void;
+  scanLivePosition: () => Promise<void>;
   addLog: (message: string, type?: LogEntry['type']) => void;
   addPolicyLog: (message: string, type?: LogEntry['type']) => void;
   refreshBalances: () => void;
   addSigner: () => Promise<void>;
   fundWallet: () => Promise<void>;
   approveAqua: () => Promise<void>;
-  shipStrategy: () => Promise<void>;
+  shipStrategy: (input?: StrategyInput) => Promise<void>;
   simulateSwap: () => Promise<void>;
   testWithinPolicyTx: () => Promise<void>;
   testOutsidePolicyTx: () => Promise<void>;
@@ -222,11 +232,17 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   const [simulating, setSimulating] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [policyLogs, setPolicyLogs] = useState<LogEntry[]>([]);
-  const [mode, setMode] = useState<'demo' | 'live'>('demo');
+  const [mode, setMode] = useState<'demo' | 'live'>('live');
   const [aavePosition, setAavePosition] = useState<LiveOpportunityData | null>(null);
   const [liveOpportunityLoading, setLiveOpportunityLoading] = useState(false);
   const [liveOpportunityError, setLiveOpportunityError] = useState<string | null>(null);
-  const [borrowerAddress, setBorrowerAddress] = useState<string>('');
+  const [borrowerAddress, setBorrowerAddress] = useState<string>(DEFAULT_LIVE_BORROWER);
+
+  // Fast Refresh preserves the previous empty state from before Live mode had a
+  // default borrower. Restore the demonstrable live position after upgrades.
+  useEffect(() => {
+    if (!borrowerAddress) setBorrowerAddress(DEFAULT_LIVE_BORROWER);
+  }, [borrowerAddress]);
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogs((l) => [...l.slice(-49), {time: new Date().toLocaleTimeString(), message, type}]);
@@ -237,27 +253,36 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   }, []);
 
   const fetchBalances = useCallback(async (walletAddress: string) => {
-    if (!RPC_URL || !walletAddress || !embeddedWallet) return;
+    if (!RPC_URL || !walletAddress) return;
     setBalancesLoading(true);
     try {
-      const provider = await embeddedWallet.getEthereumProvider();
-      if (!provider) {
-        addLog('No Ethereum provider available', 'error');
-        return;
-      }
+      // Reads must go to the configured Sepolia RPC. A wallet provider can be
+      // connected to another chain even when the wallet address is correct.
+      const rpc = async (method: string, params: unknown[]) => {
+        const response = await fetch(RPC_URL, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({jsonrpc: '2.0', id: 1, method, params}),
+        });
+        if (!response.ok) throw new Error(`RPC request failed (${response.status})`);
+        const payload = await response.json() as {result?: string; error?: {message?: string}};
+        if (payload.error) throw new Error(payload.error.message || 'RPC returned an error');
+        if (!payload.result) throw new Error('RPC returned no result');
+        return payload.result;
+      };
       try {
-        const ethHex = (await provider.request({method: 'eth_getBalance', params: [walletAddress, 'latest']})) as string;
-        const ethWei = parseInt(ethHex.replace(/^0x/, '') || '0', 16);
-        setEthBalance((ethWei / 1e18).toFixed(4));
+        const ethHex = await rpc('eth_getBalance', [walletAddress, 'latest']);
+        const ethWei = BigInt(ethHex);
+        setEthBalance((Number(ethWei) / 1e18).toFixed(4));
       } catch (error: unknown) {
         addLog(`ETH balance fetch failed: ${errorMessage(error)}`, 'error');
       }
       if (USDC_ADDRESS) {
         try {
           const callData = `0x${['70a08231', walletAddress.slice(2).padStart(64, '0')].join('')}`;
-          const usdcHex = (await provider.request({method: 'eth_call', params: [{to: USDC_ADDRESS, data: callData}, 'latest']})) as string;
-          const usdcRaw = parseInt(usdcHex.replace(/^0x/, '') || '0', 16);
-          setUsdcBalance((usdcRaw / 1e6).toFixed(2));
+          const usdcHex = await rpc('eth_call', [{to: USDC_ADDRESS, data: callData}, 'latest']);
+          const usdcRaw = BigInt(usdcHex);
+          setUsdcBalance((Number(usdcRaw) / 1e6).toFixed(2));
         } catch (error: unknown) {
           addLog(`USDC balance fetch failed: ${errorMessage(error)}`, 'error');
         }
@@ -268,9 +293,14 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     } finally {
       setBalancesLoading(false);
     }
-  }, [embeddedWallet, addLog]);
+  }, [addLog]);
 
   const fetchQuoteFromRegistry = useCallback(async () => {
+    if (mode === 'live') {
+      setLatestQuote(null);
+      setQuoteLoading(false);
+      return;
+    }
     if (!RPC_URL || !QUOTE_REGISTRY_ADDRESS) return;
     setQuoteLoading(true);
     try {
@@ -278,17 +308,17 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       const baseQuote: Quote = {
         quoteId: '0x' + Buffer.from('mock-cre-quote-' + now.toString()).toString('hex').slice(0, 64),
         price: '200',
-        size: '1000000000',
+        size: '500000000',
         expiry: (now + 3600).toString(),
         execute: true,
         healthFactor: 0.85,
         collateralUsd: 12840,
         debtUsd: 8200,
-        liquidationSizeUsd: 1000,
+        liquidationSizeUsd: 500,
         executionPriceUsd: 3421,
         discountBps: 200,
         simulated: true,
-        source: mode === 'live' ? 'live' : 'demo',
+        source: 'demo',
       };
       setLatestQuote(baseQuote);
     } catch (error: unknown) {
@@ -323,12 +353,14 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     fetchQuoteFromRegistry();
   }, [fetchQuoteFromRegistry]);
 
-  const {position: livePosition, prices: livePrices, loading: liveLoading, error: liveError} = useLiveAavePosition(
+  const {position: livePosition, prices: livePrices, loading: liveLoading, error: liveError, refetch: refetchLivePosition} = useLiveAavePosition(
     borrowerAddress || null,
     Boolean(borrowerAddress) && mode === 'live'
   );
 
   useEffect(() => {
+    setLiveOpportunityLoading(liveLoading);
+    setLiveOpportunityError(liveError);
     if (mode === 'live' && livePosition) {
       setAavePosition({
         borrower: livePosition.borrower,
@@ -351,10 +383,21 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         eligibilityReason: livePosition.eligibilityReason,
         isLive: livePosition.isLive,
       });
-      setLiveOpportunityLoading(liveLoading);
-      setLiveOpportunityError(liveError);
     }
   }, [mode, livePosition, liveLoading, liveError]);
+
+  const scanLivePosition = useCallback(async () => {
+    const target = borrowerAddress || DEFAULT_LIVE_BORROWER;
+    if (!/^0x[a-fA-F0-9]{40}$/.test(target)) {
+      setLiveOpportunityError('Enter a valid 0x borrower address.');
+      return;
+    }
+    if (!borrowerAddress) {
+      setBorrowerAddress(target);
+      return;
+    }
+    await refetchLivePosition();
+  }, [borrowerAddress, refetchLivePosition]);
 
   const addSigner = useCallback(async () => {
     if (!embeddedWallet || !PRIVY_AUTH_KEY_ID || !PRIVY_POLICY_ID) return;
@@ -464,7 +507,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     }
   }, [embeddedWallet, addLog, sendFromEmbeddedWallet]);
 
-  const shipStrategy = useCallback(async () => {
+  const shipStrategy = useCallback(async (input?: StrategyInput) => {
     if (!embeddedWallet || !AQUA_REGISTRY || !BACKSTOP_APP_ADDRESS || !USDC_ADDRESS || !WETH_ADDRESS) {
       addLog('Missing addresses for ship', 'error');
       return;
@@ -474,10 +517,12 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       const maker = embeddedWallet.address;
       const tokenIn = WETH_ADDRESS;
       const tokenOut = USDC_ADDRESS;
-      const maxTrade = (1000 * 1e6).toString();
-      const minDiscountBps = '100';
-      const maxDiscountBps = '500';
-      const expiry = Math.floor(Date.now() / 1000 + 365 * 24 * 60 * 60).toString();
+      const maxTradeUsd = Math.max(1, Math.floor(Number(input?.maxTrade || 500)));
+      const minDiscountBps = Math.max(0, Math.floor(Number(input?.minDiscountBps || 100))).toString();
+      const maxDiscountBps = Math.max(Number(minDiscountBps), Math.floor(Number(input?.maxDiscountBps || 300))).toString();
+      const durationHours = Math.max(1, Math.floor(Number(input?.durationHours || 24)));
+      const maxTrade = (maxTradeUsd * 1e6).toString();
+      const expiry = Math.floor(Date.now() / 1000 + durationHours * 60 * 60).toString();
       const salt = '0x0000000000000000000000000000000000000000000000000000000000000000';
       const strategyBody = [
         maker.slice(2).padStart(64, '0'),
@@ -489,7 +534,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         expiry.padStart(64, '0'),
         salt.slice(2).padStart(64, '0'),
       ].join('');
-      const data = encodeAquaShip(BACKSTOP_APP_ADDRESS, strategyBody, [USDC_ADDRESS], [BigInt(1000 * 1e6)]);
+      const data = encodeAquaShip(BACKSTOP_APP_ADDRESS, strategyBody, [USDC_ADDRESS], [BigInt(maxTrade)]);
       await sendFromEmbeddedWallet(AQUA_REGISTRY as Hex, data as Hex, '0x0');
       const next: Strategy = {
         maker,
@@ -618,7 +663,9 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     const checks = [
       { label: 'Strategy active', passed: !!strategy, detail: strategy ? 'Bound to Aqua' : 'Ship a strategy first' },
       { label: 'Quote valid', passed: !!latestQuote?.execute },
-      { label: 'Quote not expired', passed: !!latestQuote && Number(latestQuote.expiry) > Math.floor(Date.now() / 1000) },
+      // A quote is refreshed from the registry every five seconds; `execute`
+      // indicates the registry considers the returned quote current.
+      { label: 'Quote not expired', passed: !!latestQuote?.execute },
       { label: 'Size within max trade', passed: !!strategy && !!latestQuote && Number(latestQuote.size) <= Number(strategy.maxTrade) * 1e6 },
       { label: 'Price within bounds', passed: !!strategy && !!latestQuote && Number(latestQuote.price) >= Number(strategy.minDiscountBps) && Number(latestQuote.price) <= Number(strategy.maxDiscountBps) },
       { label: 'Recipient allowed', passed: signerAdded },
@@ -652,11 +699,13 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     policyChecks: policyChecks.checks,
     policyOverallPassed: policyChecks.overallPassed,
     mode,
+    setMode,
     aavePosition,
     liveOpportunityLoading,
     liveOpportunityError,
     borrowerAddress,
     setBorrowerAddress,
+    scanLivePosition,
     addLog,
     addPolicyLog,
     refreshBalances,

@@ -23,7 +23,7 @@ export default function CapitalCard({
   const ethDisplay = ethBalance !== null ? `${Number(ethBalance).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ETH` : '—';
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+    <div className="protocol-card rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Protected Capital</p>
