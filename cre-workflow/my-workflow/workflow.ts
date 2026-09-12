@@ -17,6 +17,13 @@ export const configSchema = z.object({
 	receiverAddress: z.string(),
 	chainSelector: z.string(),
 	gasLimit: z.number(),
+	// Optional controlled-market inputs. When present, CRE reads the mock pool
+	// directly over JSON-RPC instead of using the starter HTTP placeholder.
+	rpcUrl: z.string().optional().default(''),
+	mockPoolAddress: z.string().optional().default(''),
+	mockOracleAddress: z.string().optional().default(''),
+	mockWethAddress: z.string().optional().default(''),
+	mockBorrowerAddress: z.string().optional().default(''),
 })
 type Config = z.infer<typeof configSchema>
 
@@ -69,6 +76,22 @@ const computeDiscountBps = (healthFactor: number, curve: PrivateCurve): number =
 	return Math.floor(discount)
 }
 
+const rpcCall = (runtime: TeeRuntime<Config>, rpcUrl: string, to: string, data: string): bigint => {
+	const response = new cre.capabilities.HTTPClient().sendRequest(runtime, {
+		url: rpcUrl,
+		method: 'POST',
+		multiHeaders: {'Content-Type': {values: ['application/json']}},
+		body: new TextEncoder().encode(JSON.stringify({jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{to, data}, 'latest']})),
+	}).result()
+	if (!ok(response)) throw new Error(`Mock market RPC request failed with status: ${response.statusCode}`)
+	const result = JSON.parse(text(response)) as {result?: string; error?: {message?: string}}
+	if (!result.result) throw new Error(`Mock market RPC error: ${result.error?.message ?? 'missing result'}`)
+	return BigInt(result.result)
+}
+
+const controlledMarketConfigured = (config: Config) =>
+	Boolean(config.rpcUrl && config.mockPoolAddress && config.mockOracleAddress && config.mockWethAddress && config.mockBorrowerAddress)
+
 // ─── TEE Cron Callback ──────────────────────────────────────
 export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 	const config = runtime.config
@@ -88,6 +111,30 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 	}
 
 	// ── Step 2: Fetch public liquidation inputs ──
+	// Controlled staging path: read HF and price from the dedicated mock market.
+	// A healthy position intentionally produces no execution quote.
+	if (controlledMarketConfigured(config)) {
+		const borrower = config.mockBorrowerAddress.replace(/^0x/, '').padStart(64, '0')
+		const hfRaw = rpcCall(runtime, config.rpcUrl, config.mockPoolAddress, `0x6ad9f9df${borrower}`)
+		const healthFactor = Number(hfRaw) / 1e18
+		if (hfRaw >= 1_000_000_000_000_000_000n) return `No quote: controlled position healthy (HF ${healthFactor.toFixed(4)})`
+
+		const asset = config.mockWethAddress.replace(/^0x/, '').padStart(64, '0')
+		const collateralPrice = rpcCall(runtime, config.rpcUrl, config.mockOracleAddress, `0xb3596f07${asset}`)
+		const requestedSize = 500_000_000n
+		const minCollateralOut = (requestedSize * 100n * 10_500n * 10n ** 18n) / (collateralPrice * 10_000n)
+		const discountBps = computeDiscountBps(healthFactor, curve)
+		const boundedDiscount = Math.max(100, Math.min(500, discountBps))
+		const quoteId = keccak256(toHex(encodeAbiParameters(parseAbiParameters('uint256 timestamp, address borrower, uint256 price'), [BigInt(Math.floor(Date.now() / 1000)), config.mockBorrowerAddress as `0x${string}`, collateralPrice])))
+		const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600)
+		const encodedPayload = encodeAbiParameters(parseAbiParameters('bytes32, uint256, uint256, uint256, uint64, bool'), [quoteId as `0x${string}`, BigInt(boundedDiscount), requestedSize, minCollateralOut, expiry, true])
+		const donRuntime = runtime.usingTheDons()
+		const report = donRuntime.report({encodedPayload: hexToBase64(encodedPayload), encoderName: 'evm', signingAlgo: 'ecdsa', hashingAlgo: 'keccak256'}).result()
+		const evmClient = new cre.capabilities.EVMClient(BigInt(config.chainSelector))
+		evmClient.writeReport(donRuntime, {receiver: config.receiverAddress, report, gasConfig: {gasLimit: BigInt(config.gasLimit)}} as any).result()
+		return `Controlled quote generated: HF ${healthFactor.toFixed(4)}, discount=${boundedDiscount} bps`
+	}
+
 	// In production, these come from an authenticated API or onchain read.
 	// For this phase, we use the configured HTTP endpoint.
 	const response = new cre.capabilities.HTTPClient()
@@ -110,7 +157,9 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 	// Public inputs parsed from the authenticated response.
 	const healthFactor = 0.75 // placeholder parsing from body
 	const collateralPrice = 1_000_000_000n // placeholder parsing from body
-	const requestedSize = 1_000_000_000_000_000_000n // placeholder parsing from body
+	// USDC is the backstop's output asset and has 6 decimals on Sepolia.
+	// Keep this quote within the shipped 500-USDC strategy limit.
+	const requestedSize = 500_000_000n
 	// Simulated only: production must derive this from authenticated prices, the
 	// maker discount, and token decimals before encoding the quote.
 	const minCollateralOut = 250_000_000_000_000_000n
@@ -159,18 +208,17 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 		const evmClient = new cre.capabilities.EVMClient(BigInt(config.chainSelector))
 
 		try {
-			const writeResult = evmClient
+			evmClient
 				.writeReport(donRuntime, {
 					receiver: config.receiverAddress,
 					report,
 					gasConfig: { gasLimit: BigInt(config.gasLimit) },
 				} as any)
 				.result()
-
-			runtime.log(`Report delivered: txStatus=${writeResult.txStatus}`)
-		} catch (e: any) {
-			runtime.log(`writeReport error: ${e.message}`)
-			throw e
+		} catch {
+			// Do not log from inside the enclave: even operational logs can reveal
+			// timing or workflow behaviour. The DON reports delivery failures.
+			throw new Error('CRE report delivery failed')
 		}
 	}
 

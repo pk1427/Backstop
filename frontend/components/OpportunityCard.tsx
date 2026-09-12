@@ -14,7 +14,7 @@ interface OpportunityCardProps {
     executionPriceUsd: number;
     discountBps: number;
     simulated: boolean;
-    source: 'demo' | 'live';
+    source: 'live' | 'controlled';
   } | null;
   loading?: boolean;
 }
@@ -32,6 +32,7 @@ function healthStatus(hf: number): { label: string; color: string } {
 
 export default function OpportunityCard({ quote, loading }: OpportunityCardProps) {
   const isLive = quote?.source === 'live';
+  const isControlled = quote?.source === 'controlled';
   const healthFactor = quote?.healthFactor ?? 0;
   const collateral = quote?.collateralUsd ?? 0;
   const debt = quote?.debtUsd ?? 0;
@@ -59,15 +60,10 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-            {isLive ? 'Live Aave Opportunity' : 'Simulated Opportunity'}
+            {isControlled ? 'Controlled Mock Market' : 'Live Aave Opportunity'}
           </p>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Policy-compatible capital is available for this position.</p>
         </div>
-        {!isLive && (
-          <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-            DEMO DATA
-          </span>
-        )}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4">
@@ -95,7 +91,7 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
       {quote && (
         <div className="mt-4 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-4">
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">
-            {isLive ? 'Live Execution Quote' : 'Private Execution Quote'}
+            {isControlled ? 'Signed CRE Quote' : 'Live Execution Quote'}
           </p>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div><p className="text-xs text-zinc-500 dark:text-zinc-400">Asset pair</p><p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">USDC → WETH</p></div>
@@ -108,9 +104,7 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
               <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{expiryLabel}</p>
             </div>
           </div>
-          {!isLive && (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">SIMULATED CRE QUOTE</p>
-          )}
+          {isControlled && <p className="mt-2 text-xs text-cyan-300">ONCHAIN MOCK ORACLE · CRE-SIGNED QUOTE</p>}
         </div>
       )}
     </div>

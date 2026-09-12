@@ -3,7 +3,12 @@
   "url": "https://postman-echo.com/headers",
   "secretId": "API_TOKEN",
   "scoreThreshold": 500,
-  "receiverAddress": "0xe39e8ec1e77bc9f9e36e552105362f9d5bee0f95",
+  "receiverAddress": "0x709ed64fde000bed9576b8d1bb0e26eb72fb736b",
   "chainSelector": "16015286601757825753",
-  "gasLimit": 1000000
+  "gasLimit": 1000000,
+  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "mockPoolAddress": "0x89803cfb464eb76ace81463361a34b86b3e7bd2a",
+  "mockOracleAddress": "0x7d8ae00643171b904183f3cd32803802de43c32a",
+  "mockWethAddress": "0xb848fedc37bebaf136e51cff90bf73bb0f0de9e9",
+  "mockBorrowerAddress": "0xf62c155eb012303cbba80cb246de20e05dd57051"
 }

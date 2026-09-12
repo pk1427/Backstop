@@ -106,7 +106,16 @@ abstract contract ReceiverTemplate is IReceiver, Ownable {
             }
         }
 
-        _processReport(report);
+        // CRE's Keystone forwarder supplies its compact signed report in
+        // `report` and appends the workflow's EVM-encoded application payload
+        // to `metadata`. Backstop quotes use a fixed six-word ABI payload
+        // (bytes32, uint256, uint256, uint256, uint64, bool) = 192 bytes.
+        // Retain the direct-report fallback for local mocks and unit tests.
+        bytes calldata applicationPayload = report;
+        if (metadata.length >= 192) {
+            applicationPayload = metadata[metadata.length - 192:];
+        }
+        _processReport(applicationPayload);
     }
 
     /// @notice Updates the forwarder address that is allowed to call onReport

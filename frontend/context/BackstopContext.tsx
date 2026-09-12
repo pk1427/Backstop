@@ -1,8 +1,12 @@
 'use client';
 
-import {createContext, useContext, useEffect, useCallback, useState, ReactNode, useMemo} from 'react';
+import {createContext, useContext, useEffect, useCallback, useState, useRef, ReactNode, useMemo} from 'react';
 import {usePrivy, useWallets, useSendTransaction, useSigners} from '@privy-io/react-auth';
-import {useLiveAavePosition, LiveAavePosition, LiveOpportunity, DEMO_OPPORTUNITY, buildLiveOpportunity} from '@/hooks/useLiveAave';
+import {encodeFunctionData, keccak256, encodeAbiParameters, parseAbiParameters} from 'viem';
+import {useLiveAavePosition, LiveAavePosition, LiveOpportunity, buildLiveOpportunity} from '@/hooks/useLiveAave';
+
+type LogEntry = { time: string; message: string; type: 'info' | 'success' | 'error' | 'policy' };
+type Hex = `0x${string}`;
 
 const PRIVY_AUTH_KEY_ID = process.env.NEXT_PUBLIC_PRIVY_AUTH_KEY_ID || '';
 const PRIVY_POLICY_ID = process.env.NEXT_PUBLIC_PRIVY_POLICY_ID || '';
@@ -14,6 +18,19 @@ const WETH_ADDRESS = process.env.NEXT_PUBLIC_WETH_ADDRESS || '';
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || '11155111');
 const QUOTE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_QUOTE_REGISTRY_ADDRESS || '0xe39e8eC1e77bc9F9E36e552105362F9D5BEe0F95';
+const CONTROLLED_QUOTE_REGISTRY = process.env.NEXT_PUBLIC_CONTROLLED_QUOTE_REGISTRY_ADDRESS || '0x709ed64fde000bed9576b8d1bb0e26eb72fb736b';
+const CONTROLLED_POOL = process.env.NEXT_PUBLIC_CONTROLLED_POOL_ADDRESS || '0x89803cfb464eb76ace81463361a34b86b3e7bd2a';
+const CONTROLLED_ORACLE = process.env.NEXT_PUBLIC_CONTROLLED_ORACLE_ADDRESS || '0x7d8ae00643171b904183f3cd32803802de43c32a';
+const CONTROLLED_WETH = process.env.NEXT_PUBLIC_CONTROLLED_WETH_ADDRESS || '0xb848fedc37bebaf136e51cff90bf73bb0f0de9e9';
+const CONTROLLED_BORROWER = process.env.NEXT_PUBLIC_CONTROLLED_BORROWER_ADDRESS || '0xf62c155eb012303cbba80cb246de20e05dd57051';
+const CONTROLLED_EXECUTOR = process.env.NEXT_PUBLIC_CONTROLLED_EXECUTOR_ADDRESS || '0x331d4f5D31C2FdaC0E5e729bEdae6eF102C2c726';
+const CONTROLLED_STRATEGY_HASH = '0x9068c7620dd86da69a7cbbc2886b8b542514a4aa0d64c822bc3880f25e38a860';
+const CONTROLLED_STRATEGY_EXPIRY = 1791760000n;
+// This staging strategy was shipped with exactly 500 btUSDC and consumed by
+// settlement tx 0xa325…4943. A new shipment is required before another quote
+// can use the same controlled maker capital.
+const CONTROLLED_STRATEGY_CAPACITY_CONSUMED = false;
+const QUOTE_SUBMITTED_TOPIC = '0x67407045222a7ab3954cba5ae73b7281e1f7f5c90a1e14b2f9ed9800c7208d1c';
 const DEFAULT_LIVE_BORROWER = process.env.NEXT_PUBLIC_LIVE_BORROWER_ADDRESS || '0x659f1ddf3Afa31029B990D2202Df8B2094eE012E';
 
 // Aave V3 Sepolia addresses from aave-dao/aave-address-book
@@ -58,10 +75,8 @@ const encodeAquaShip = (app: string, strategy: string, tokens: string[], amounts
   );
 };
 
-type LogEntry = { time: string; message: string; type: 'info' | 'success' | 'error' | 'policy' };
-type Hex = `0x${string}`;
-
 export interface Strategy {
+  appAddress: string;
   maker: string;
   tokenIn: string;
   tokenOut: string;
@@ -92,7 +107,7 @@ export interface Quote {
   executionPriceUsd: number;
   discountBps: number;
   simulated: boolean;
-  source: 'demo' | 'live';
+  source: 'live' | 'controlled';
   // Live fields
   minCollateralOut?: string;
   minCollateralOutFormatted?: string;
@@ -150,6 +165,7 @@ export interface BackstopState {
   addingSigner: boolean;
   ethBalance: string | null;
   usdcBalance: string | null;
+  aquaApproved: boolean;
   balancesLoading: boolean;
   lastUpdated: string | null;
   strategy: Strategy | null;
@@ -163,8 +179,8 @@ export interface BackstopState {
   statusLabel: string | undefined;
   policyChecks: { label: string; passed: boolean; detail?: string }[];
   policyOverallPassed: boolean;
-  mode: 'demo' | 'live';
-  setMode: (mode: 'demo' | 'live') => void;
+  mode: 'live' | 'controlled';
+  setMode: (mode: 'live' | 'controlled') => void;
   aavePosition: LiveOpportunityData | null;
   liveOpportunityLoading: boolean;
   liveOpportunityError: string | null;
@@ -178,7 +194,8 @@ export interface BackstopState {
   fundWallet: () => Promise<void>;
   approveAqua: () => Promise<void>;
   shipStrategy: (input?: StrategyInput) => Promise<void>;
-  simulateSwap: () => Promise<void>;
+  executeControlledLiquidation: () => Promise<void>;
+  controlledStrategyCapacityAvailable: boolean;
   testWithinPolicyTx: () => Promise<void>;
   testOutsidePolicyTx: () => Promise<void>;
   triggerExpiredQuote: () => void;
@@ -192,18 +209,159 @@ const BackstopContext = createContext<BackstopState | null>(null);
 
 const STRATEGY_STORAGE_KEY = 'backstop_strategy';
 
-function loadPersistedStrategy(): Strategy | null {
+type DbLogEntry = {
+  timestamp: string;
+  message: string;
+  type: 'info' | 'success' | 'error' | 'policy';
+};
+
+async function loadPersistedLogs(walletAddress: string): Promise<LogEntry[]> {
+  if (typeof window === 'undefined') return [];
+  try {
+    const response = await fetch(`/api/logs?walletAddress=${walletAddress}&limit=100`);
+    const data = await response.json();
+    return (data.logs || []).map((log: DbLogEntry) => ({
+      time: log.timestamp,
+      message: log.message,
+      type: log.type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadPersistedPolicyLogs(walletAddress: string): Promise<LogEntry[]> {
+  if (typeof window === 'undefined') return [];
+  try {
+    const response = await fetch(`/api/logs?walletAddress=${walletAddress}&type=policy&limit=100`);
+    const data = await response.json();
+    return (data.logs || []).map((log: DbLogEntry) => ({
+      time: log.timestamp,
+      message: log.message,
+      type: log.type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadPersistedTransactions(walletAddress: string) {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = sessionStorage.getItem(STRATEGY_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as Strategy;
+    const response = await fetch(`/api/transactions?walletAddress=${walletAddress}&limit=1`);
+    const data = await response.json();
+    return data.transactions?.[0] || null;
   } catch {
     return null;
   }
 }
 
-function persistStrategy(strategy: Strategy | null) {
+async function loadPersistedStrategy(walletAddress: string): Promise<Strategy | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const response = await fetch(`/api/strategy?walletAddress=${walletAddress}`);
+    const data = await response.json();
+    const s = data.strategy;
+    if (!s) return null;
+    return {
+      appAddress: BACKSTOP_APP_ADDRESS,
+      maker: s.maker,
+      tokenIn: s.token_in,
+      tokenOut: s.token_out,
+      maxTrade: s.max_trade,
+      minDiscountBps: s.min_discount_bps,
+      maxDiscountBps: s.max_discount_bps,
+      expiry: s.expiry,
+      salt: s.salt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function persistLog(walletAddress: string, message: string, type: LogEntry['type'], isPolicy = false) {
+  if (typeof window === 'undefined' || !walletAddress) return;
+  try {
+    await fetch('/api/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        timestamp: new Date().toLocaleTimeString(),
+        message,
+        type,
+        wallet_address: walletAddress,
+        logType: isPolicy ? 'policy' : 'default',
+      }),
+    });
+  } catch {
+    // Silently fail
+  }
+}
+
+async function persistTransaction(walletAddress: string, executionResult: ExecutionResult) {
+  if (typeof window === 'undefined' || !walletAddress) return;
+  try {
+    await fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tx_hash: executionResult.txHash,
+        timestamp: executionResult.timestamp,
+        usdc_deployed: executionResult.usdcDeployed,
+        weth_pushed: executionResult.wethPushed,
+        maker_usdc_before: executionResult.makerUsdcBefore,
+        maker_usdc_after: executionResult.makerUsdcAfter,
+        maker_weth_before: executionResult.makerWethBefore,
+        maker_weth_after: executionResult.makerWethAfter,
+        simulated: executionResult.simulated,
+        wallet_address: walletAddress,
+      }),
+    });
+  } catch {
+    // Silently fail
+  }
+}
+
+async function persistStrategyToDb(walletAddress: string, strategy: Strategy) {
+  if (typeof window === 'undefined' || !walletAddress) return;
+  try {
+    await fetch('/api/strategy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        wallet_address: walletAddress,
+        maker: strategy.maker,
+        token_in: strategy.tokenIn,
+        token_out: strategy.tokenOut,
+        max_trade: strategy.maxTrade,
+        min_discount_bps: strategy.minDiscountBps,
+        max_discount_bps: strategy.maxDiscountBps,
+        expiry: strategy.expiry,
+        salt: strategy.salt,
+      }),
+    });
+  } catch {
+    // Silently fail
+  }
+}
+
+function loadPersistedStrategyFromSession(): Strategy | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(STRATEGY_STORAGE_KEY);
+    if (!raw) return null;
+    const strategy = JSON.parse(raw) as Strategy;
+    if (strategy.appAddress?.toLowerCase() !== BACKSTOP_APP_ADDRESS.toLowerCase()) {
+      sessionStorage.removeItem(STRATEGY_STORAGE_KEY);
+      return null;
+    }
+    return strategy;
+  } catch {
+    return null;
+  }
+}
+
+function persistStrategyToSession(strategy: Strategy | null) {
   if (typeof window === 'undefined') return;
   if (strategy) {
     sessionStorage.setItem(STRATEGY_STORAGE_KEY, JSON.stringify(strategy));
@@ -223,20 +381,52 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   const [addingSigner, setAddingSigner] = useState(false);
   const [ethBalance, setEthBalance] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [aquaApproved, setAquaApproved] = useState(false);
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [strategy, setStrategy] = useState<Strategy | null>(() => loadPersistedStrategy());
+  const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [latestQuote, setLatestQuote] = useState<Quote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [policyLogs, setPolicyLogs] = useState<LogEntry[]>([]);
-  const [mode, setMode] = useState<'demo' | 'live'>('live');
+  const [mode, setMode] = useState<'live' | 'controlled'>('live');
   const [aavePosition, setAavePosition] = useState<LiveOpportunityData | null>(null);
   const [liveOpportunityLoading, setLiveOpportunityLoading] = useState(false);
   const [liveOpportunityError, setLiveOpportunityError] = useState<string | null>(null);
   const [borrowerAddress, setBorrowerAddress] = useState<string>(DEFAULT_LIVE_BORROWER);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const lastBalanceError = useRef<string>('');
+
+  // Load persisted data from database when wallet connects
+  useEffect(() => {
+    if (!embeddedWallet?.address || dataLoaded) return;
+    let mounted = true;
+    (async () => {
+      const [savedLogs, savedPolicyLogs, savedStrategy] = await Promise.all([
+        loadPersistedLogs(embeddedWallet.address),
+        loadPersistedPolicyLogs(embeddedWallet.address),
+        loadPersistedStrategy(embeddedWallet.address),
+      ]);
+      if (mounted) {
+        setLogs(savedLogs);
+        setPolicyLogs(savedPolicyLogs);
+        if (savedStrategy) {
+          setStrategy(savedStrategy);
+          persistStrategyToSession(savedStrategy);
+        } else {
+          // Fallback to sessionStorage
+          const sessionStrategy = loadPersistedStrategyFromSession();
+          if (sessionStrategy) {
+            setStrategy(sessionStrategy);
+          }
+        }
+        setDataLoaded(true);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [embeddedWallet?.address, dataLoaded]);
 
   // Fast Refresh preserves the previous empty state from before Live mode had a
   // default borrower. Restore the demonstrable live position after upgrades.
@@ -245,12 +435,26 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   }, [borrowerAddress]);
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
-    setLogs((l) => [...l.slice(-49), {time: new Date().toLocaleTimeString(), message, type}]);
-  }, []);
+    const time = new Date().toLocaleTimeString();
+    setLogs((l) => [...l.slice(-49), {time, message, type}]);
+    if (embeddedWallet?.address) {
+      persistLog(embeddedWallet.address, message, type, false);
+    }
+  }, [embeddedWallet?.address]);
 
   const addPolicyLog = useCallback((message: string, type: LogEntry['type'] = 'policy') => {
-    setPolicyLogs((l) => [...l.slice(-49), {time: new Date().toLocaleTimeString(), message, type}]);
-  }, []);
+    const time = new Date().toLocaleTimeString();
+    setPolicyLogs((l) => [...l.slice(-49), {time, message, type}]);
+    if (embeddedWallet?.address) {
+      persistLog(embeddedWallet.address, message, type, true);
+    }
+  }, [embeddedWallet?.address]);
+
+  const addBalanceErrorOnce = useCallback((message: string) => {
+    if (lastBalanceError.current === message) return;
+    lastBalanceError.current = message;
+    addLog(message, 'error');
+  }, [addLog]);
 
   const fetchBalances = useCallback(async (walletAddress: string) => {
     if (!RPC_URL || !walletAddress) return;
@@ -275,7 +479,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         const ethWei = BigInt(ethHex);
         setEthBalance((Number(ethWei) / 1e18).toFixed(4));
       } catch (error: unknown) {
-        addLog(`ETH balance fetch failed: ${errorMessage(error)}`, 'error');
+        addBalanceErrorOnce(`ETH balance fetch failed: ${errorMessage(error)}`);
       }
       if (USDC_ADDRESS) {
         try {
@@ -283,50 +487,111 @@ export function BackstopProvider({children}: {children: ReactNode}) {
           const usdcHex = await rpc('eth_call', [{to: USDC_ADDRESS, data: callData}, 'latest']);
           const usdcRaw = BigInt(usdcHex);
           setUsdcBalance((Number(usdcRaw) / 1e6).toFixed(2));
+
+          // Reflect the actual ERC-20 allowance, rather than keeping a UI-only
+          // approval flag. This remains correct after a refresh or reconnect.
+          if (AQUA_REGISTRY) {
+            const allowanceData = `0xdd62ed3e${walletAddress.slice(2).padStart(64, '0')}${AQUA_REGISTRY.slice(2).padStart(64, '0')}`;
+            const allowanceHex = await rpc('eth_call', [{to: USDC_ADDRESS, data: allowanceData}, 'latest']);
+            setAquaApproved(BigInt(allowanceHex) > 0n);
+          }
         } catch (error: unknown) {
-          addLog(`USDC balance fetch failed: ${errorMessage(error)}`, 'error');
+          addBalanceErrorOnce(`USDC balance fetch failed: ${errorMessage(error)}`);
+          setAquaApproved(false);
         }
       }
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (error: unknown) {
-      addLog(`Balance fetch error: ${errorMessage(error)}`, 'error');
+      addBalanceErrorOnce(`Balance fetch error: ${errorMessage(error)}`);
     } finally {
       setBalancesLoading(false);
     }
-  }, [addLog]);
+  }, [addBalanceErrorOnce]);
 
   const fetchQuoteFromRegistry = useCallback(async () => {
-    if (mode === 'live') {
-      setLatestQuote(null);
-      setQuoteLoading(false);
-      return;
-    }
     if (!RPC_URL || !QUOTE_REGISTRY_ADDRESS) return;
-    setQuoteLoading(true);
+    if (!latestQuote) setQuoteLoading(true);
     try {
-      const now = Math.floor(Date.now() / 1000);
-      const baseQuote: Quote = {
-        quoteId: '0x' + Buffer.from('mock-cre-quote-' + now.toString()).toString('hex').slice(0, 64),
-        price: '200',
-        size: '500000000',
-        expiry: (now + 3600).toString(),
-        execute: true,
-        healthFactor: 0.85,
-        collateralUsd: 12840,
-        debtUsd: 8200,
-        liquidationSizeUsd: 500,
-        executionPriceUsd: 3421,
-        discountBps: 200,
-        simulated: true,
-        source: 'demo',
-      };
-      setLatestQuote(baseQuote);
+      if (mode === 'live' || mode === 'controlled') {
+        const rpc = async (method: string, params: unknown[]) => {
+          const response = await fetch(RPC_URL, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({jsonrpc: '2.0', id: 1, method, params}),
+          });
+          const payload = await response.json() as {result?: unknown; error?: {message?: string}};
+          if (!response.ok || payload.error) throw new Error(payload.error?.message || `RPC request failed (${response.status})`);
+          return payload.result;
+        };
+        const registryAddress = mode === 'controlled' ? CONTROLLED_QUOTE_REGISTRY : QUOTE_REGISTRY_ADDRESS;
+        let controlledPosition: LiveOpportunityData | null = null;
+        if (mode === 'controlled') {
+          const pad = (address: string) => address.slice(2).padStart(64, '0');
+          const [hfHex, collateralHex, debtHex, priceHex] = await Promise.all([
+            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x6ad9f9df${pad(CONTROLLED_BORROWER)}`}, 'latest']) as Promise<string>,
+            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x771568fd${pad(CONTROLLED_BORROWER)}`}, 'latest']) as Promise<string>,
+            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x3add60ab${pad(CONTROLLED_BORROWER)}`}, 'latest']) as Promise<string>,
+            rpc('eth_call', [{to: CONTROLLED_ORACLE, data: `0xb3596f07${pad(CONTROLLED_WETH)}`}, 'latest']) as Promise<string>,
+          ]);
+          const hf = Number(BigInt(hfHex)) / 1e18;
+          const collateral = BigInt(collateralHex); const debt = BigInt(debtHex); const price = BigInt(priceHex);
+          const collateralUsd = Number(collateral * price / 10n ** 18n) / 1e8;
+          controlledPosition = {borrower: CONTROLLED_BORROWER, healthFactor: hf, collateralAsset: CONTROLLED_WETH, collateralAmount: collateral.toString(), collateralAmountFormatted: (Number(collateral) / 1e18).toFixed(4), collateralUsd, debtAsset: 'btUSDC', debtAmount: debt.toString(), debtAmountFormatted: (Number(debt) / 1e6).toFixed(2), debtUsd: Number(debt) / 1e6, liquidationThreshold: 8500, liquidationBonus: 10500, maxLiquidatableDebt: (debt / 2n).toString(), maxLiquidatableDebtFormatted: (Number(debt / 2n) / 1e6).toFixed(2), expectedCollateral: '', expectedCollateralFormatted: '', eligible: hf < 1, eligibilityReason: hf < 1 ? '' : 'Health factor >= 1', isLive: true};
+          setAavePosition((previous) => previous && previous.healthFactor === controlledPosition!.healthFactor && previous.collateralAmount === controlledPosition!.collateralAmount && previous.debtAmount === controlledPosition!.debtAmount ? previous : controlledPosition);
+        }
+        const latestBlock = BigInt(await rpc('eth_blockNumber', []) as string);
+        // Public Sepolia RPC endpoints limit eth_getLogs queries to 50,000
+        // blocks. CRE emits every minute, so this 45k-block window safely
+        // captures the newest quote without exceeding that provider limit.
+        const fromBlock = latestBlock > 45_000n ? latestBlock - 45_000n : 0n;
+        const logs = await rpc('eth_getLogs', [{
+          address: registryAddress,
+          fromBlock: `0x${fromBlock.toString(16)}`,
+          toBlock: 'latest',
+          topics: [QUOTE_SUBMITTED_TOPIC],
+        }]) as {topics: string[]; data: string}[];
+        const event = logs.at(-1);
+        if (!event || !event.topics[1]) {
+          setLatestQuote(null);
+          return;
+        }
+        const words = event.data.replace(/^0x/, '').match(/.{64}/g) || [];
+        if (words.length !== 4) throw new Error('Malformed QuoteSubmitted event');
+        const [price, size, expiry, execute] = words.map((word) => BigInt(`0x${word}`));
+        if (expiry <= BigInt(Math.floor(Date.now() / 1000))) {
+          setLatestQuote(null);
+          return;
+        }
+        const sizeUsd = Number(size) / 1e6;
+        const quoteData = `0x60f85c67${event.topics[1].slice(2).padStart(64, '0')}`;
+        const quoteResult = await rpc('eth_call', [{to: registryAddress, data: quoteData}, 'latest']) as string;
+        const quoteWords = quoteResult.replace(/^0x/, '').match(/.{64}/g) || [];
+        const minCollateralOut = quoteWords[3] ? BigInt(`0x${quoteWords[3]}`) : 0n;
+        const expectedCollateral = Number(minCollateralOut) / 1e18;
+        setLatestQuote({
+          quoteId: event.topics[1],
+          price: price.toString(),
+          size: size.toString(),
+          expiry: expiry.toString(),
+          execute: execute !== 0n,
+          healthFactor: controlledPosition?.healthFactor || aavePosition?.healthFactor || 0,
+          collateralUsd: controlledPosition?.collateralUsd || aavePosition?.collateralUsd || 0,
+          debtUsd: controlledPosition?.debtUsd || aavePosition?.debtUsd || 0,
+          liquidationSizeUsd: sizeUsd,
+          executionPriceUsd: expectedCollateral > 0 ? sizeUsd / expectedCollateral : 0,
+          discountBps: Number(price),
+          simulated: false,
+          source: mode === 'controlled' ? 'controlled' : 'live',
+          minCollateralOut: minCollateralOut.toString(),
+          minCollateralOutFormatted: expectedCollateral.toFixed(4),
+        });
+        return;
+      }
     } catch (error: unknown) {
       addLog(`Quote fetch failed: ${errorMessage(error)}`, 'error');
     } finally {
       setQuoteLoading(false);
     }
-  }, [RPC_URL, QUOTE_REGISTRY_ADDRESS, addLog, mode]);
+  }, [RPC_URL, QUOTE_REGISTRY_ADDRESS, addLog, mode, aavePosition]);
 
   useEffect(() => {
     if (!embeddedWallet?.address) return;
@@ -461,7 +726,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addPolicyLog('Transaction blocked: scoped signer not added', 'policy');
       return;
     }
-    const allowed = [AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, ALLOWED_ADDRESS, USDC_ADDRESS].filter(Boolean) as string[];
+    const allowed = [AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, CONTROLLED_EXECUTOR, ALLOWED_ADDRESS, USDC_ADDRESS].filter(Boolean) as string[];
     const lowerTo = to.toLowerCase();
     const isAllowed = allowed.some((a) => a.toLowerCase() === lowerTo);
     if (enforceClientAllowlist && !isAllowed) {
@@ -471,7 +736,10 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     }
     try {
       addLog('Sending transaction to ' + to.slice(0, 10) + '...', 'info');
-      const hash = await sendTransaction({to, data, value, gasLimit: BigInt(300000)}, {
+      // Privy otherwise may construct this on the wallet's default chain
+      // (often mainnet), where this embedded wallet has no ETH. All Backstop
+      // contracts and the funded balance are on Ethereum Sepolia.
+      const hash = await sendTransaction({to, data, value, gasLimit: BigInt(300000), chainId: CHAIN_ID}, {
         address: embeddedWallet.address,
       });
       addLog('Transaction succeeded: ' + hash.hash, 'success');
@@ -537,6 +805,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       const data = encodeAquaShip(BACKSTOP_APP_ADDRESS, strategyBody, [USDC_ADDRESS], [BigInt(maxTrade)]);
       await sendFromEmbeddedWallet(AQUA_REGISTRY as Hex, data as Hex, '0x0');
       const next: Strategy = {
+        appAddress: BACKSTOP_APP_ADDRESS,
         maker,
         tokenIn,
         tokenOut,
@@ -547,12 +816,61 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         salt: '0x0',
       };
       setStrategy(next);
-      persistStrategy(next);
+      persistStrategyToSession(next);
+      if (embeddedWallet.address) {
+        persistStrategyToDb(embeddedWallet.address, next);
+      }
       addLog('Strategy shipped successfully', 'success');
     } catch (error: unknown) {
       addLog('Ship error: ' + errorMessage(error), 'error');
     }
   }, [embeddedWallet, addLog, sendFromEmbeddedWallet, encodeAquaShip]);
+
+  const executeControlledLiquidation = useCallback(async () => {
+    if (CONTROLLED_STRATEGY_CAPACITY_CONSUMED) {
+      addLog('Controlled execution blocked: the shipped 500 btUSDC strategy capacity has already been consumed', 'policy');
+      return;
+    }
+    if (mode !== 'controlled' || !latestQuote?.quoteId || !latestQuote.minCollateralOut) {
+      addLog('No valid controlled CRE quote is available', 'error');
+      return;
+    }
+    if (!embeddedWallet || !signerAdded) {
+      addLog('Connect the authorized wallet before executing', 'policy');
+      return;
+    }
+    const strategy = {
+      maker: '0x659f1ddf3Afa31029B990D2202Df8B2094eE012E' as Hex,
+      tokenIn: CONTROLLED_WETH as Hex,
+      tokenOut: '0xFd080b70bAefD6Bb19906c107A7240C4e5C2dcca' as Hex,
+      maxTrade: 500_000_000n,
+      minDiscountBps: 100,
+      maxDiscountBps: 500,
+      expiry: CONTROLLED_STRATEGY_EXPIRY,
+      salt: `0x${'0'.repeat(63)}1` as Hex,
+    };
+    const calculatedHash = keccak256(encodeAbiParameters(parseAbiParameters('address, address, address, uint256, uint16, uint16, uint64, bytes32'), [strategy.maker, strategy.tokenIn, strategy.tokenOut, strategy.maxTrade, strategy.minDiscountBps, strategy.maxDiscountBps, strategy.expiry, strategy.salt]));
+    if (calculatedHash.toLowerCase() !== CONTROLLED_STRATEGY_HASH) throw new Error('Controlled strategy data does not match the shipped Aqua strategy');
+    const data = encodeFunctionData({
+      abi: [{type: 'function', name: 'execute', stateMutability: 'nonpayable', inputs: [
+        {name: 'strategyHash', type: 'bytes32'},
+        {name: 'strategy', type: 'tuple', components: [{name: 'maker', type: 'address'}, {name: 'tokenIn', type: 'address'}, {name: 'tokenOut', type: 'address'}, {name: 'maxTrade', type: 'uint256'}, {name: 'minDiscountBps', type: 'uint16'}, {name: 'maxDiscountBps', type: 'uint16'}, {name: 'expiry', type: 'uint64'}, {name: 'salt', type: 'bytes32'}]},
+        {name: 'quoteId', type: 'bytes32'}, {name: 'borrower', type: 'address'}, {name: 'expectedWethOut', type: 'uint256'},
+      ], outputs: [{type: 'uint256'}]}],
+      functionName: 'execute', args: [CONTROLLED_STRATEGY_HASH as Hex, strategy, latestQuote.quoteId as Hex, CONTROLLED_BORROWER as Hex, BigInt(latestQuote.minCollateralOut)],
+    });
+    setSimulating(true);
+    addLog(`Executing controlled quote ${latestQuote.quoteId.slice(0, 10)}…`, 'info');
+    try {
+      const hash = await sendTransaction({to: CONTROLLED_EXECUTOR as Hex, data, value: '0x0', gasLimit: 500000n, chainId: CHAIN_ID}, {address: embeddedWallet.address});
+      addLog(`Controlled liquidation confirmed: ${hash.hash}`, 'success');
+      addPolicyLog(`Controlled quote consumed: ${hash.hash.slice(0, 10)}…`, 'success');
+    } catch (error: unknown) {
+      addLog(`Controlled liquidation failed: ${errorMessage(error)}`, 'error');
+    } finally {
+      setSimulating(false);
+    }
+  }, [mode, latestQuote, embeddedWallet, signerAdded, addLog, addPolicyLog, sendTransaction]);
 
   const testWithinPolicyTx = useCallback(async () => {
     if (!embeddedWallet || !USDC_ADDRESS) {
@@ -570,45 +888,6 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     await sendFromEmbeddedWallet(target, '0x', '0x0');
   }, [addLog, sendFromEmbeddedWallet]);
 
-  const simulateSwap = useCallback(async () => {
-    if (!strategy || !latestQuote) {
-      addLog('No strategy or quote available for swap', 'error');
-      return;
-    }
-    if (!embeddedWallet) {
-      addLog('No embedded wallet', 'error');
-      return;
-    }
-    setSimulating(true);
-    const makerUsdcBefore = parseFloat(usdcBalance || '0');
-    const makerWethBefore = parseFloat(ethBalance || '0');
-
-    const liquidationSizeUsd = latestQuote.liquidationSizeUsd;
-    const executionPriceUsd = latestQuote.executionPriceUsd;
-    const actualPulledUsd = Math.min(liquidationSizeUsd, makerUsdcBefore);
-    const actualWethReceived = actualPulledUsd > 0 && executionPriceUsd > 0 ? actualPulledUsd / executionPriceUsd : 0;
-
-    addLog('Simulating swap: deploying ' + actualPulledUsd.toFixed(2) + ' USDC, pushing ' + actualWethReceived.toFixed(4) + ' WETH', 'info');
-    setTimeout(() => {
-      const makerUsdcAfter = Math.max(0, makerUsdcBefore - actualPulledUsd);
-      const makerWethAfter = makerWethBefore + actualWethReceived;
-      setExecutionResult({
-        txHash: '0x' + Buffer.from('simulated-tx-' + Date.now()).toString('hex').slice(0, 64),
-        timestamp: new Date().toLocaleTimeString(),
-        usdcDeployed: actualPulledUsd.toFixed(2),
-        wethPushed: actualWethReceived.toFixed(4),
-        makerUsdcBefore: makerUsdcBefore.toFixed(2),
-        makerUsdcAfter: makerUsdcAfter.toFixed(2),
-        makerWethBefore: makerWethBefore.toFixed(4),
-        makerWethAfter: makerWethAfter.toFixed(4),
-        simulated: true,
-      });
-      addLog('Swap executed: ' + actualPulledUsd.toFixed(2) + ' USDC deployed, ' + actualWethReceived.toFixed(4) + ' WETH pushed', 'success');
-      addPolicyLog('Swap executed successfully', 'success');
-      fetchBalances(embeddedWallet.address);
-      setSimulating(false);
-    }, 1000);
-  }, [strategy, latestQuote, embeddedWallet, usdcBalance, ethBalance, addLog, addPolicyLog, fetchBalances]);
 
   const refreshBalances = useCallback(() => {
     if (embeddedWallet?.address) {
@@ -685,6 +964,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     addingSigner,
     ethBalance,
     usdcBalance,
+    aquaApproved,
     balancesLoading,
     lastUpdated,
     strategy,
@@ -713,7 +993,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     fundWallet,
     approveAqua,
     shipStrategy,
-    simulateSwap,
+    executeControlledLiquidation,
+    controlledStrategyCapacityAvailable: !CONTROLLED_STRATEGY_CAPACITY_CONSUMED,
     testWithinPolicyTx,
     testOutsidePolicyTx,
     triggerExpiredQuote,
@@ -732,6 +1013,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     addingSigner,
     ethBalance,
     usdcBalance,
+    aquaApproved,
     balancesLoading,
     lastUpdated,
     strategy,
@@ -758,7 +1040,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     fundWallet,
     approveAqua,
     shipStrategy,
-    simulateSwap,
+    executeControlledLiquidation,
     testWithinPolicyTx,
     testOutsidePolicyTx,
     triggerExpiredQuote,

@@ -3,18 +3,18 @@
 import {PrivyProvider} from '@privy-io/react-auth';
 import {defineChain} from 'viem';
 
-const baseSepolia = defineChain({
-  id: 84532,
-  name: 'Base Sepolia',
-  network: 'base-sepolia',
+const sepolia = defineChain({
+  id: 11155111,
+  name: 'Ethereum Sepolia',
+  network: 'sepolia',
   nativeCurrency: {
     name: 'Sepolia ETH',
     symbol: 'ETH',
     decimals: 18,
   },
   rpcUrls: {
-    default: {http: ['https://sepolia.base.org']},
-    public: {http: ['https://sepolia.base.org']},
+    default: {http: [process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com']},
+    public: {http: [process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com']},
   },
 });
 
@@ -28,8 +28,10 @@ export default function Providers({children}: {children: React.ReactNode}) {
             createOnLogin: 'off',
           },
         },
-        defaultChain: baseSepolia,
-        supportedChains: [baseSepolia],
+        // Backstop's deployed Aqua, Aave and USDC contracts are on Ethereum
+        // Sepolia. Privy must be configured for this same network to sign.
+        defaultChain: sepolia,
+        supportedChains: [sepolia],
       }}
     >
       {children}

@@ -5,13 +5,7 @@ import {Header, Navigation, ActivityTimeline} from '@/components';
 
 export default function ActivityPage() {
   const backstop = useBackstop();
-  const events = backstop.logs.slice().reverse().slice(0, 12).map((log) => ({
-    time: log.time,
-    label: eventLabel(log.message),
-    status: log.type,
-    description: log.message,
-    simulated: backstop.executionResult?.simulated && log.message.includes('Swap executed'),
-  }));
+  const events = confirmedMilestones(backstop.logs);
 
   return <div className="protocol-surface flex min-h-screen flex-col bg-[#030816]">
     <Header systemStatus={backstop.systemStatus} statusLabel={backstop.statusLabel} walletAddress={backstop.embeddedWallet?.address} network={`Sepolia (${process.env.NEXT_PUBLIC_CHAIN_ID || '11155111'})`} onLogout={backstop.logout} />
@@ -27,4 +21,48 @@ export default function ActivityPage() {
 
 function Connect({onClick}: {onClick: () => void}) { return <div className="flex flex-col items-center justify-center py-24 text-center"><h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Connect to view activity</h2><p className="mt-2 text-sm text-zinc-500">Your strategy and execution history appears here.</p><button onClick={onClick} className="mt-6 rounded-xl border border-cyan-400/40 bg-cyan-400/10 px-5 py-3 text-sm font-semibold text-cyan-300">Connect wallet</button></div>; }
 
-function eventLabel(message: string) { if (message.includes('Strategy shipped')) return 'Strategy activated'; if (message.includes('Swap executed')) return 'Liquidation executed'; if (message.includes('Approve')) return 'Aqua approved'; if (message.includes('Quote')) return 'Quote updated'; return 'Backstop update'; }
+type ActivityLog = {time: string; message: string; type: 'info' | 'success' | 'error' | 'policy'};
+
+function confirmedMilestones(logs: ActivityLog[]) {
+  let pending: 'approval' | 'strategy' | null = null;
+  const milestones: {time: string; label: string; status: 'success'; description: string; txHash: string}[] = [];
+
+  for (const log of logs) {
+    const calibration = log.message.match(/^Risk calibration confirmed: withdrew ([\d.]+ WETH) from Position (\d+) \(HF ([\d.]+)\) — (0x[a-fA-F0-9]{64})$/);
+    if (calibration) {
+      milestones.push({
+        time: log.time,
+        label: 'Collateral safety buffer reduced',
+        description: `Position ${calibration[2]}: ${calibration[1]} withdrawn · HF ${calibration[3]}`,
+        status: 'success',
+        txHash: calibration[4],
+      });
+      continue;
+    }
+    const demoSettlement = log.message.match(/^Demo settlement completed: ([\d.]+) USDC deployed, ([\d.]+) WETH settled$/);
+    if (demoSettlement) {
+      milestones.push({
+        time: log.time,
+        label: 'Demo liquidation settled',
+        description: `${demoSettlement[1]} USDC deployed · ${demoSettlement[2]} WETH settled`,
+        status: 'success',
+        txHash: '',
+      });
+      continue;
+    }
+    if (log.message.includes('Sending approve(')) pending = 'approval';
+    if (log.message.includes('Shipping strategy')) pending = 'strategy';
+    const txHash = log.message.match(/0x[a-fA-F0-9]{64}/)?.[0];
+    if (!txHash || !log.message.includes('Transaction succeeded') || !pending) continue;
+    milestones.push({
+      time: log.time,
+      label: pending === 'approval' ? 'Aqua approved' : 'Strategy shipped',
+      description: pending === 'approval' ? 'USDC authorization confirmed on Sepolia' : 'Your execution policy is active on Sepolia',
+      status: 'success',
+      txHash,
+    });
+    pending = null;
+  }
+
+  return milestones.slice(-3).reverse();
+}
