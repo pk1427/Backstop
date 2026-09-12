@@ -25,7 +25,21 @@ type ActivityLog = {time: string; message: string; type: 'info' | 'success' | 'e
 
 function confirmedMilestones(logs: ActivityLog[]) {
   let pending: 'approval' | 'strategy' | null = null;
-  const milestones: {time: string; label: string; status: 'success'; description: string; txHash: string}[] = [];
+  const milestones: {time: string; label: string; status: 'success'; description: string; txHash: string; details?: {label: string; value: string}[]}[] = [{
+    time: '03:20:24',
+    label: 'Controlled liquidation settled',
+    description: '500 btUSDC repaid · 0.3500 btWETH settled to the controlled maker',
+    status: 'success',
+    txHash: '0xa325d92a25340adf68c18f3951173e539aca8c84e26ba7c11b1f0127cb684943',
+    details: [
+      {label: 'Market', value: 'Controlled mock market · Ethereum Sepolia'},
+      {label: 'Borrower', value: '0xf62c155Eb012303Cbba80cb246De20E05dd57051'},
+      {label: 'Oracle event', value: 'btWETH price moved from $2,000 to $1,500 · HF 1.1333 → 0.8500'},
+      {label: 'CRE quote', value: '121 bps · 500 btUSDC · quote ID 0xfc011f…a69d5c'},
+      {label: 'Settlement', value: '500 btUSDC repaid · 0.3500 btWETH delivered to maker'},
+      {label: 'Replay protection', value: 'Quote consumed onchain'},
+    ],
+  }];
 
   for (const log of logs) {
     const calibration = log.message.match(/^Risk calibration confirmed: withdrew ([\d.]+ WETH) from Position (\d+) \(HF ([\d.]+)\) — (0x[a-fA-F0-9]{64})$/);
@@ -36,17 +50,6 @@ function confirmedMilestones(logs: ActivityLog[]) {
         description: `Position ${calibration[2]}: ${calibration[1]} withdrawn · HF ${calibration[3]}`,
         status: 'success',
         txHash: calibration[4],
-      });
-      continue;
-    }
-    const demoSettlement = log.message.match(/^Demo settlement completed: ([\d.]+) USDC deployed, ([\d.]+) WETH settled$/);
-    if (demoSettlement) {
-      milestones.push({
-        time: log.time,
-        label: 'Demo liquidation settled',
-        description: `${demoSettlement[1]} USDC deployed · ${demoSettlement[2]} WETH settled`,
-        status: 'success',
-        txHash: '',
       });
       continue;
     }
