@@ -112,7 +112,9 @@ abstract contract ReceiverTemplate is IReceiver, Ownable {
         // (bytes32, uint256, uint256, uint256, uint64, bool) = 192 bytes.
         // Retain the direct-report fallback for local mocks and unit tests.
         bytes calldata applicationPayload = report;
-        if (metadata.length >= 192) {
+        if (metadata.length >= 224) {
+            applicationPayload = metadata[metadata.length - 224:];
+        } else if (metadata.length >= 192) {
             applicationPayload = metadata[metadata.length - 192:];
         }
         _processReport(applicationPayload);

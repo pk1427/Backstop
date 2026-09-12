@@ -23,7 +23,7 @@ export const configSchema = z.object({
 	mockPoolAddress: z.string().optional().default(''),
 	mockOracleAddress: z.string().optional().default(''),
 	mockWethAddress: z.string().optional().default(''),
-	mockBorrowerAddress: z.string().optional().default(''),
+	mockBorrowerAddresses: z.array(z.string()).optional().default([]),
 })
 type Config = z.infer<typeof configSchema>
 
@@ -90,7 +90,7 @@ const rpcCall = (runtime: TeeRuntime<Config>, rpcUrl: string, to: string, data: 
 }
 
 const controlledMarketConfigured = (config: Config) =>
-	Boolean(config.rpcUrl && config.mockPoolAddress && config.mockOracleAddress && config.mockWethAddress && config.mockBorrowerAddress)
+	Boolean(config.rpcUrl && config.mockPoolAddress && config.mockOracleAddress && config.mockWethAddress && config.mockBorrowerAddresses.length)
 
 // ─── TEE Cron Callback ──────────────────────────────────────
 export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
@@ -114,25 +114,27 @@ export const onCronTrigger = (runtime: TeeRuntime<Config>): string => {
 	// Controlled staging path: read HF and price from the dedicated mock market.
 	// A healthy position intentionally produces no execution quote.
 	if (controlledMarketConfigured(config)) {
-		const borrower = config.mockBorrowerAddress.replace(/^0x/, '').padStart(64, '0')
-		const hfRaw = rpcCall(runtime, config.rpcUrl, config.mockPoolAddress, `0x6ad9f9df${borrower}`)
-		const healthFactor = Number(hfRaw) / 1e18
-		if (hfRaw >= 1_000_000_000_000_000_000n) return `No quote: controlled position healthy (HF ${healthFactor.toFixed(4)})`
-
 		const asset = config.mockWethAddress.replace(/^0x/, '').padStart(64, '0')
 		const collateralPrice = rpcCall(runtime, config.rpcUrl, config.mockOracleAddress, `0xb3596f07${asset}`)
-		const requestedSize = 500_000_000n
-		const minCollateralOut = (requestedSize * 100n * 10_500n * 10n ** 18n) / (collateralPrice * 10_000n)
-		const discountBps = computeDiscountBps(healthFactor, curve)
-		const boundedDiscount = Math.max(100, Math.min(500, discountBps))
-		const quoteId = keccak256(toHex(encodeAbiParameters(parseAbiParameters('uint256 timestamp, address borrower, uint256 price'), [BigInt(Math.floor(Date.now() / 1000)), config.mockBorrowerAddress as `0x${string}`, collateralPrice])))
-		const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600)
-		const encodedPayload = encodeAbiParameters(parseAbiParameters('bytes32, uint256, uint256, uint256, uint64, bool'), [quoteId as `0x${string}`, BigInt(boundedDiscount), requestedSize, minCollateralOut, expiry, true])
 		const donRuntime = runtime.usingTheDons()
-		const report = donRuntime.report({encodedPayload: hexToBase64(encodedPayload), encoderName: 'evm', signingAlgo: 'ecdsa', hashingAlgo: 'keccak256'}).result()
 		const evmClient = new cre.capabilities.EVMClient(BigInt(config.chainSelector))
-		evmClient.writeReport(donRuntime, {receiver: config.receiverAddress, report, gasConfig: {gasLimit: BigInt(config.gasLimit)}} as any).result()
-		return `Controlled quote generated: HF ${healthFactor.toFixed(4)}, discount=${boundedDiscount} bps`
+		let generated = 0
+		for (const borrowerAddress of config.mockBorrowerAddresses) {
+			const borrower = borrowerAddress.replace(/^0x/, '').padStart(64, '0')
+			const hfRaw = rpcCall(runtime, config.rpcUrl, config.mockPoolAddress, `0x6ad9f9df${borrower}`)
+			if (hfRaw >= 1_000_000_000_000_000_000n) continue
+			const healthFactor = Number(hfRaw) / 1e18
+			const requestedSize = 500_000_000n
+			const minCollateralOut = (requestedSize * 100n * 10_500n * 10n ** 18n) / (collateralPrice * 10_000n)
+			const boundedDiscount = Math.max(100, Math.min(500, computeDiscountBps(healthFactor, curve)))
+			const quoteId = keccak256(toHex(encodeAbiParameters(parseAbiParameters('uint256 timestamp, address borrower, uint256 price'), [BigInt(Math.floor(Date.now() / 1000)), borrowerAddress as `0x${string}`, collateralPrice])))
+			const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600)
+			const encodedPayload = encodeAbiParameters(parseAbiParameters('bytes32, address, uint256, uint256, uint256, uint64, bool'), [quoteId as `0x${string}`, borrowerAddress as `0x${string}`, BigInt(boundedDiscount), requestedSize, minCollateralOut, expiry, true])
+			const report = donRuntime.report({encodedPayload: hexToBase64(encodedPayload), encoderName: 'evm', signingAlgo: 'ecdsa', hashingAlgo: 'keccak256'}).result()
+			evmClient.writeReport(donRuntime, {receiver: config.receiverAddress, report, gasConfig: {gasLimit: BigInt(config.gasLimit)}} as any).result()
+			generated++
+		}
+		return `Controlled borrower-bound quotes generated: ${generated}`
 	}
 
 	// In production, these come from an authenticated API or onchain read.

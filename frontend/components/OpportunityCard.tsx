@@ -94,7 +94,7 @@ export default function OpportunityCard({ quote, loading }: OpportunityCardProps
             {isControlled ? 'Signed CRE Quote' : 'Live Execution Quote'}
           </p>
           <div className="grid grid-cols-3 gap-4 text-sm">
-            <div><p className="text-xs text-zinc-500 dark:text-zinc-400">Asset pair</p><p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">USDC → WETH</p></div>
+            <div><p className="text-xs text-zinc-500 dark:text-zinc-400">Asset pair</p><p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">{isControlled ? 'btUSDC → btWETH' : 'USDC → WETH'}</p></div>
             <div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">Discount</p>
               <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{discountPct}</p>

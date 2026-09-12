@@ -42,6 +42,23 @@ function confirmedMilestones(logs: ActivityLog[]) {
   }];
 
   for (const log of logs) {
+    const controlledExecution = log.message.match(/^Controlled liquidation confirmed: (0x[a-fA-F0-9]{64})$/);
+    if (controlledExecution) {
+      milestones.push({
+        time: log.time,
+        label: 'Controlled liquidation settled',
+        description: 'Privy maker capital settled through Aqua on Ethereum Sepolia',
+        status: 'success',
+        txHash: controlledExecution[1],
+        details: [
+          {label: 'Maker', value: 'Privy embedded wallet · 0x2c5A…6B8C'},
+          {label: 'Capital', value: '500 btUSDC from the controlled Aqua strategy'},
+          {label: 'Borrower', value: 'Position 02 · 0x85D73764…0020bA1c'},
+          {label: 'Result', value: 'Atomic repay and btWETH settlement confirmed onchain'},
+        ],
+      });
+      continue;
+    }
     const calibration = log.message.match(/^Risk calibration confirmed: withdrew ([\d.]+ WETH) from Position (\d+) \(HF ([\d.]+)\) — (0x[a-fA-F0-9]{64})$/);
     if (calibration) {
       milestones.push({

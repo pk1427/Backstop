@@ -10,6 +10,7 @@ import {IReceiver} from "./IReceiver.sol";
 contract QuoteRegistry is ReceiverTemplate {
     struct Quote {
         bytes32 quoteId;
+        address borrower;
         uint256 price;
         uint256 size;
         // Minimum collateral the maker must receive, in the collateral token's raw units.
@@ -23,9 +24,11 @@ contract QuoteRegistry is ReceiverTemplate {
     mapping(bytes32 => Quote) public quotes;
     mapping(bytes32 => bool) public quoteExists;
     mapping(bytes32 => bool) public quoteConsumed;
+    mapping(address => bytes32) public latestQuoteForBorrower;
 
     event QuoteSubmitted(
         bytes32 indexed quoteId,
+        address indexed borrower,
         uint256 price,
         uint256 size,
         uint64 expiry,
@@ -67,11 +70,11 @@ contract QuoteRegistry is ReceiverTemplate {
     function _processReport(bytes calldata report) internal override {
         // Decode the application payload
         // Expected layout: (bytes32 quoteId, uint256 price, uint256 size, uint64 expiry, bool execute)
-        (bytes32 quoteId, uint256 price, uint256 size, uint256 minCollateralOut, uint64 expiry, bool execute) =
-            abi.decode(report, (bytes32, uint256, uint256, uint256, uint64, bool));
+        (bytes32 quoteId, address borrower, uint256 price, uint256 size, uint256 minCollateralOut, uint64 expiry, bool execute) =
+            abi.decode(report, (bytes32, address, uint256, uint256, uint256, uint64, bool));
 
         // Validate quote data
-        if (quoteId == bytes32(0)) {
+        if (quoteId == bytes32(0) || borrower == address(0)) {
             revert InvalidQuote();
         }
 
@@ -82,6 +85,7 @@ contract QuoteRegistry is ReceiverTemplate {
         // Store the quote
         quotes[quoteId] = Quote({
             quoteId: quoteId,
+            borrower: borrower,
             price: price,
             size: size,
             minCollateralOut: minCollateralOut,
@@ -90,8 +94,9 @@ contract QuoteRegistry is ReceiverTemplate {
             consumed: false
         });
         quoteExists[quoteId] = true;
+        latestQuoteForBorrower[borrower] = quoteId;
 
-        emit QuoteSubmitted(quoteId, price, size, expiry, execute);
+        emit QuoteSubmitted(quoteId, borrower, price, size, expiry, execute);
     }
 
     /// @notice Returns the quote data for a given quote ID

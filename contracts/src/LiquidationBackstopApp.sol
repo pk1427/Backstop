@@ -19,6 +19,7 @@ contract LiquidationBackstopApp is AquaApp, Ownable {
     error QuoteAlreadyConsumed();
     error UnauthorizedExecutor();
     error ExecutorAlreadySet();
+    error QuoteBorrowerMismatch();
 
     event StrategyShipped(bytes32 indexed strategyHash, address indexed maker, address tokenIn, address tokenOut, uint256 maxTrade, uint16 minDiscountBps, uint16 maxDiscountBps, uint64 expiry);
     event QuoteValidated(bytes32 indexed strategyHash, bytes32 indexed quoteId, uint256 price, uint256 size);
@@ -76,6 +77,8 @@ contract LiquidationBackstopApp is AquaApp, Ownable {
         }
         // Read quote from production QuoteRegistry
         QuoteRegistry.Quote memory registryQuote = quoteRegistry.getQuote(quoteId);
+        (address borrower,) = abi.decode(takerData, (address, uint256));
+        if (registryQuote.borrower != borrower) revert QuoteBorrowerMismatch();
 
         // Validate quote exists and is executable
         require(registryQuote.execute, "Quote not executable");

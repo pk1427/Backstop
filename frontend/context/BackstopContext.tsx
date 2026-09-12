@@ -22,14 +22,11 @@ const CONTROLLED_QUOTE_REGISTRY = process.env.NEXT_PUBLIC_CONTROLLED_QUOTE_REGIS
 const CONTROLLED_POOL = process.env.NEXT_PUBLIC_CONTROLLED_POOL_ADDRESS || '0x89803cfb464eb76ace81463361a34b86b3e7bd2a';
 const CONTROLLED_ORACLE = process.env.NEXT_PUBLIC_CONTROLLED_ORACLE_ADDRESS || '0x7d8ae00643171b904183f3cd32803802de43c32a';
 const CONTROLLED_WETH = process.env.NEXT_PUBLIC_CONTROLLED_WETH_ADDRESS || '0xb848fedc37bebaf136e51cff90bf73bb0f0de9e9';
-const CONTROLLED_BORROWER = process.env.NEXT_PUBLIC_CONTROLLED_BORROWER_ADDRESS || '0xf62c155eb012303cbba80cb246de20e05dd57051';
+const CONTROLLED_USDC = process.env.NEXT_PUBLIC_CONTROLLED_USDC_ADDRESS || '0xfd080b70baefd6bb19906c107a7240c4e5c2dcca';
+// Position 02 is CRE-monitored. Positions 03 and 04 remain independently
+// visible in the market, but only the monitored borrower receives a quote.
+const CONTROLLED_BORROWER = process.env.NEXT_PUBLIC_CONTROLLED_BORROWER_ADDRESS || '0x85d737640a6b86ebfd1aceb9be9992c90020ba1c';
 const CONTROLLED_EXECUTOR = process.env.NEXT_PUBLIC_CONTROLLED_EXECUTOR_ADDRESS || '0x331d4f5D31C2FdaC0E5e729bEdae6eF102C2c726';
-const CONTROLLED_STRATEGY_HASH = '0x9068c7620dd86da69a7cbbc2886b8b542514a4aa0d64c822bc3880f25e38a860';
-const CONTROLLED_STRATEGY_EXPIRY = 1791760000n;
-// This staging strategy was shipped with exactly 500 btUSDC and consumed by
-// settlement tx 0xa325…4943. A new shipment is required before another quote
-// can use the same controlled maker capital.
-const CONTROLLED_STRATEGY_CAPACITY_CONSUMED = false;
 const QUOTE_SUBMITTED_TOPIC = '0x67407045222a7ab3954cba5ae73b7281e1f7f5c90a1e14b2f9ed9800c7208d1c';
 const DEFAULT_LIVE_BORROWER = process.env.NEXT_PUBLIC_LIVE_BORROWER_ADDRESS || '0x659f1ddf3Afa31029B990D2202Df8B2094eE012E';
 
@@ -39,41 +36,17 @@ const AAVE_ORACLE = process.env.NEXT_PUBLIC_AAVE_ORACLE_ADDRESS || '0x2da8849758
 const AAVE_USDC = process.env.NEXT_PUBLIC_AAVE_USDC_ADDRESS || '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8';
 const AAVE_WETH = process.env.NEXT_PUBLIC_AAVE_WETH_ADDRESS || '0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c';
 
-const AQUA_SHIP_SELECTOR = '0xf50b870f';
-
-const encodeAquaShip = (app: string, strategy: string, tokens: string[], amounts: bigint[]): string => {
-  const selector = AQUA_SHIP_SELECTOR;
-  const paddedAddress = (addr: string) => addr.slice(2).padStart(64, '0');
-  const strategyHex = strategy.replace(/^0x/, '');
-  const strategyLen = strategyHex.length / 2;
-  const strategyPaddedLen = strategyLen.toString(16).padStart(64, '0');
-  const tokensLen = tokens.length.toString(16).padStart(64, '0');
-  const tokensPadded = tokens.map(paddedAddress).join('');
-  const amountsLen = amounts.length.toString(16).padStart(64, '0');
-  const amountsPadded = amounts.map((n) => n.toString(16).padStart(64, '0')).join('');
-  const headSize = 4 * 32;
-  const strategyDataEnd = headSize + 32 + strategyLen;
-  const tokensOffset = (strategyDataEnd + 31) & ~31;
-  const tokensDataEnd = tokensOffset + 32 + tokens.length * 32;
-  const amountsOffset = (tokensDataEnd + 31) & ~31;
-  const strategyOffsetHex = headSize.toString(16).padStart(64, '0');
-  const tokensOffsetHex = tokensOffset.toString(16).padStart(64, '0');
-  const amountsOffsetHex = amountsOffset.toString(16).padStart(64, '0');
-
-  return (
-    selector +
-    paddedAddress(app) +
-    strategyOffsetHex +
-    tokensOffsetHex +
-    amountsOffsetHex +
-    strategyPaddedLen +
-    strategyHex +
-    tokensLen +
-    tokensPadded +
-    amountsLen +
-    amountsPadded
-  );
-};
+// Use viem's ABI encoder for Aqua's three dynamic arguments. The prior
+// hand-assembled payload looked successful in the wallet but placed a zero
+// balance in Aqua storage, which then caused an arithmetic underflow on pull.
+const encodeAquaShip = (app: string, strategy: string, tokens: string[], amounts: bigint[]): Hex => encodeFunctionData({
+  abi: [{type: 'function', name: 'ship', stateMutability: 'nonpayable', inputs: [
+    {name: 'app', type: 'address'}, {name: 'strategy', type: 'bytes'},
+    {name: 'tokens', type: 'address[]'}, {name: 'amounts', type: 'uint256[]'},
+  ], outputs: [{name: 'strategyHash', type: 'bytes32'}]}],
+  functionName: 'ship',
+  args: [app as Hex, `0x${strategy}` as Hex, tokens as Hex[], amounts],
+});
 
 export interface Strategy {
   appAddress: string;
@@ -186,6 +159,10 @@ export interface BackstopState {
   liveOpportunityError: string | null;
   borrowerAddress: string;
   setBorrowerAddress: (address: string) => void;
+  controlledBorrowerAddress: string;
+  setControlledBorrowerAddress: (address: string) => void;
+  controlledQuoteMatchesSelection: boolean;
+  controlledPositionSettled: boolean;
   scanLivePosition: () => Promise<void>;
   addLog: (message: string, type?: LogEntry['type']) => void;
   addPolicyLog: (message: string, type?: LogEntry['type']) => void;
@@ -263,8 +240,9 @@ async function loadPersistedStrategy(walletAddress: string): Promise<Strategy | 
     const data = await response.json();
     const s = data.strategy;
     if (!s) return null;
+    const controlled = String(s.token_out).toLowerCase() === CONTROLLED_USDC.toLowerCase();
     return {
-      appAddress: BACKSTOP_APP_ADDRESS,
+      appAddress: controlled ? (process.env.NEXT_PUBLIC_CONTROLLED_BACKSTOP_APP_ADDRESS || '0x42698126b5E4884A99905484d484ECe7fbF18A6a') : BACKSTOP_APP_ADDRESS,
       maker: s.maker,
       tokenIn: s.token_in,
       tokenOut: s.token_out,
@@ -351,7 +329,8 @@ function loadPersistedStrategyFromSession(): Strategy | null {
     const raw = sessionStorage.getItem(STRATEGY_STORAGE_KEY);
     if (!raw) return null;
     const strategy = JSON.parse(raw) as Strategy;
-    if (strategy.appAddress?.toLowerCase() !== BACKSTOP_APP_ADDRESS.toLowerCase()) {
+    const validApps = [BACKSTOP_APP_ADDRESS, process.env.NEXT_PUBLIC_CONTROLLED_BACKSTOP_APP_ADDRESS || '0x42698126b5E4884A99905484d484ECe7fbF18A6a'].map((address) => address.toLowerCase());
+    if (!validApps.includes(strategy.appAddress?.toLowerCase())) {
       sessionStorage.removeItem(STRATEGY_STORAGE_KEY);
       return null;
     }
@@ -391,13 +370,32 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   const [simulating, setSimulating] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [policyLogs, setPolicyLogs] = useState<LogEntry[]>([]);
-  const [mode, setMode] = useState<'live' | 'controlled'>('live');
+  const [mode, setModeState] = useState<'live' | 'controlled'>('live');
   const [aavePosition, setAavePosition] = useState<LiveOpportunityData | null>(null);
   const [liveOpportunityLoading, setLiveOpportunityLoading] = useState(false);
   const [liveOpportunityError, setLiveOpportunityError] = useState<string | null>(null);
   const [borrowerAddress, setBorrowerAddress] = useState<string>(DEFAULT_LIVE_BORROWER);
+  const [controlledBorrowerAddress, setControlledBorrowerAddress] = useState<string>(CONTROLLED_BORROWER);
   const [dataLoaded, setDataLoaded] = useState(false);
   const lastBalanceError = useRef<string>('');
+  const lastQuoteError = useRef<string>('');
+  const quoteFetchInFlight = useRef(false);
+  const latestQuoteRef = useRef<Quote | null>(null);
+  const aavePositionRef = useRef<LiveOpportunityData | null>(null);
+
+  useEffect(() => { latestQuoteRef.current = latestQuote; }, [latestQuote]);
+  useEffect(() => { aavePositionRef.current = aavePosition; }, [aavePosition]);
+
+  // The maker chooses the controlled market on the liquidation page, then
+  // continues to Strategy without losing that intentional context.
+  useEffect(() => {
+    const saved = window.sessionStorage.getItem('backstop_market_mode');
+    if (saved === 'controlled' || saved === 'live') setModeState(saved);
+  }, []);
+  const setMode = useCallback((next: 'live' | 'controlled') => {
+    setModeState(next);
+    window.sessionStorage.setItem('backstop_market_mode', next);
+  }, []);
 
   // Load persisted data from database when wallet connects
   useEffect(() => {
@@ -481,10 +479,11 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       } catch (error: unknown) {
         addBalanceErrorOnce(`ETH balance fetch failed: ${errorMessage(error)}`);
       }
-      if (USDC_ADDRESS) {
+      const capitalToken = mode === 'controlled' ? CONTROLLED_USDC : USDC_ADDRESS;
+      if (capitalToken) {
         try {
           const callData = `0x${['70a08231', walletAddress.slice(2).padStart(64, '0')].join('')}`;
-          const usdcHex = await rpc('eth_call', [{to: USDC_ADDRESS, data: callData}, 'latest']);
+          const usdcHex = await rpc('eth_call', [{to: capitalToken, data: callData}, 'latest']);
           const usdcRaw = BigInt(usdcHex);
           setUsdcBalance((Number(usdcRaw) / 1e6).toFixed(2));
 
@@ -492,7 +491,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
           // approval flag. This remains correct after a refresh or reconnect.
           if (AQUA_REGISTRY) {
             const allowanceData = `0xdd62ed3e${walletAddress.slice(2).padStart(64, '0')}${AQUA_REGISTRY.slice(2).padStart(64, '0')}`;
-            const allowanceHex = await rpc('eth_call', [{to: USDC_ADDRESS, data: allowanceData}, 'latest']);
+            const allowanceHex = await rpc('eth_call', [{to: capitalToken, data: allowanceData}, 'latest']);
             setAquaApproved(BigInt(allowanceHex) > 0n);
           }
         } catch (error: unknown) {
@@ -506,11 +505,15 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     } finally {
       setBalancesLoading(false);
     }
-  }, [addBalanceErrorOnce]);
+  }, [addBalanceErrorOnce, mode]);
 
   const fetchQuoteFromRegistry = useCallback(async () => {
     if (!RPC_URL || !QUOTE_REGISTRY_ADDRESS) return;
-    if (!latestQuote) setQuoteLoading(true);
+    // Do not overlap requests. On slower free RPC endpoints, overlapping
+    // polls were racing one another and briefly replacing the card state.
+    if (quoteFetchInFlight.current) return;
+    quoteFetchInFlight.current = true;
+    if (!latestQuoteRef.current) setQuoteLoading(true);
     try {
       if (mode === 'live' || mode === 'controlled') {
         const rpc = async (method: string, params: unknown[]) => {
@@ -527,38 +530,68 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         if (mode === 'controlled') {
           const pad = (address: string) => address.slice(2).padStart(64, '0');
           const [hfHex, collateralHex, debtHex, priceHex] = await Promise.all([
-            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x6ad9f9df${pad(CONTROLLED_BORROWER)}`}, 'latest']) as Promise<string>,
-            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x771568fd${pad(CONTROLLED_BORROWER)}`}, 'latest']) as Promise<string>,
-            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x3add60ab${pad(CONTROLLED_BORROWER)}`}, 'latest']) as Promise<string>,
+            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x6ad9f9df${pad(controlledBorrowerAddress)}`}, 'latest']) as Promise<string>,
+            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x771568fd${pad(controlledBorrowerAddress)}`}, 'latest']) as Promise<string>,
+            rpc('eth_call', [{to: CONTROLLED_POOL, data: `0x3add60ab${pad(controlledBorrowerAddress)}`}, 'latest']) as Promise<string>,
             rpc('eth_call', [{to: CONTROLLED_ORACLE, data: `0xb3596f07${pad(CONTROLLED_WETH)}`}, 'latest']) as Promise<string>,
           ]);
           const hf = Number(BigInt(hfHex)) / 1e18;
           const collateral = BigInt(collateralHex); const debt = BigInt(debtHex); const price = BigInt(priceHex);
           const collateralUsd = Number(collateral * price / 10n ** 18n) / 1e8;
-          controlledPosition = {borrower: CONTROLLED_BORROWER, healthFactor: hf, collateralAsset: CONTROLLED_WETH, collateralAmount: collateral.toString(), collateralAmountFormatted: (Number(collateral) / 1e18).toFixed(4), collateralUsd, debtAsset: 'btUSDC', debtAmount: debt.toString(), debtAmountFormatted: (Number(debt) / 1e6).toFixed(2), debtUsd: Number(debt) / 1e6, liquidationThreshold: 8500, liquidationBonus: 10500, maxLiquidatableDebt: (debt / 2n).toString(), maxLiquidatableDebtFormatted: (Number(debt / 2n) / 1e6).toFixed(2), expectedCollateral: '', expectedCollateralFormatted: '', eligible: hf < 1, eligibilityReason: hf < 1 ? '' : 'Health factor >= 1', isLive: true};
+          controlledPosition = {borrower: controlledBorrowerAddress, healthFactor: hf, collateralAsset: CONTROLLED_WETH, collateralAmount: collateral.toString(), collateralAmountFormatted: (Number(collateral) / 1e18).toFixed(4), collateralUsd, debtAsset: 'btUSDC', debtAmount: debt.toString(), debtAmountFormatted: (Number(debt) / 1e6).toFixed(2), debtUsd: Number(debt) / 1e6, liquidationThreshold: 8500, liquidationBonus: 10500, maxLiquidatableDebt: (debt / 2n).toString(), maxLiquidatableDebtFormatted: (Number(debt / 2n) / 1e6).toFixed(2), expectedCollateral: '', expectedCollateralFormatted: '', eligible: hf < 1, eligibilityReason: hf < 1 ? '' : 'Health factor >= 1', isLive: true};
           setAavePosition((previous) => previous && previous.healthFactor === controlledPosition!.healthFactor && previous.collateralAmount === controlledPosition!.collateralAmount && previous.debtAmount === controlledPosition!.debtAmount ? previous : controlledPosition);
+          // Position 02 starts at 1,000 btUSDC. A confirmed 500 btUSDC
+          // close-factor settlement leaves 500 debt and 0.35 collateral.
+          // Never surface a stale 500-unit CRE quote after that state.
+          if (controlledBorrowerAddress.toLowerCase() === CONTROLLED_BORROWER.toLowerCase() && debt <= 500_000_000n) {
+            setLatestQuote(null);
+            return;
+          }
+          // CRE currently signs quotes only for Position 02. Do not display
+          // that quote as executable for a different selected borrower.
+          if (controlledBorrowerAddress.toLowerCase() !== CONTROLLED_BORROWER.toLowerCase()) {
+            // The borrower-bound registry supports a unique CRE quote for
+            // every selected controlled borrower.
+          }
+          const borrowerWord = controlledBorrowerAddress.slice(2).padStart(64, '0');
+          const quoteIdResult = await rpc('eth_call', [{to: CONTROLLED_QUOTE_REGISTRY, data: `0x83f70c82${borrowerWord}`}, 'latest']) as string;
+          const boundQuoteId = `0x${quoteIdResult.slice(-64)}` as Hex;
+          if (boundQuoteId === `0x${'0'.repeat(64)}`) { setLatestQuote(null); return; }
+          const boundQuoteResult = await rpc('eth_call', [{to: CONTROLLED_QUOTE_REGISTRY, data: `0x60f85c67${boundQuoteId.slice(2)}`}, 'latest']) as string;
+          const boundWords = boundQuoteResult.replace(/^0x/, '').match(/.{64}/g) || [];
+          if (boundWords.length < 8) throw new Error('Malformed borrower-bound quote');
+          const boundPrice = BigInt(`0x${boundWords[2]}`); const boundSize = BigInt(`0x${boundWords[3]}`); const boundMinOut = BigInt(`0x${boundWords[4]}`); const boundExpiry = BigInt(`0x${boundWords[5]}`); const boundExecute = BigInt(`0x${boundWords[6]}`) !== 0n; const consumed = BigInt(`0x${boundWords[7]}`) !== 0n;
+          if (boundExpiry <= BigInt(Math.floor(Date.now() / 1000)) || consumed || !boundExecute) { setLatestQuote(null); return; }
+          const nextBoundQuote: Quote = {quoteId: boundQuoteId, price: boundPrice.toString(), size: boundSize.toString(), expiry: boundExpiry.toString(), execute: true, healthFactor: controlledPosition.healthFactor, collateralUsd: controlledPosition.collateralUsd, debtUsd: controlledPosition.debtUsd, liquidationSizeUsd: Number(boundSize) / 1e6, executionPriceUsd: Number(boundSize) / 1e6 / (Number(boundMinOut) / 1e18), discountBps: Number(boundPrice), simulated: false, source: 'controlled', minCollateralOut: boundMinOut.toString(), minCollateralOutFormatted: (Number(boundMinOut) / 1e18).toFixed(4)};
+          setLatestQuote((previous) => previous && previous.quoteId === nextBoundQuote.quoteId ? previous : nextBoundQuote);
+          return;
         }
         const latestBlock = BigInt(await rpc('eth_blockNumber', []) as string);
-        // Public Sepolia RPC endpoints limit eth_getLogs queries to 50,000
-        // blocks. CRE emits every minute, so this 45k-block window safely
-        // captures the newest quote without exceeding that provider limit.
-        const fromBlock = latestBlock > 45_000n ? latestBlock - 45_000n : 0n;
+        // The configured free Sepolia provider permits at most a ten-block
+        // getLogs range. CRE publishes every minute, so polling this small
+        // recent window is sufficient and avoids the blank-state RPC error.
+        const toBlock = latestBlock > 0n ? latestBlock - 1n : 0n;
+        const fromBlock = toBlock > 9n ? toBlock - 9n : 0n;
         const logs = await rpc('eth_getLogs', [{
           address: registryAddress,
           fromBlock: `0x${fromBlock.toString(16)}`,
-          toBlock: 'latest',
+          toBlock: `0x${toBlock.toString(16)}`,
           topics: [QUOTE_SUBMITTED_TOPIC],
         }]) as {topics: string[]; data: string}[];
         const event = logs.at(-1);
         if (!event || !event.topics[1]) {
-          setLatestQuote(null);
+          // Retain a still-valid quote during the short interval between
+          // CRE reports. Clearing it here made the market visibly flicker.
+          const current = latestQuoteRef.current;
+          if (!current || BigInt(current.expiry) <= BigInt(Math.floor(Date.now() / 1000))) setLatestQuote(null);
           return;
         }
         const words = event.data.replace(/^0x/, '').match(/.{64}/g) || [];
         if (words.length !== 4) throw new Error('Malformed QuoteSubmitted event');
         const [price, size, expiry, execute] = words.map((word) => BigInt(`0x${word}`));
         if (expiry <= BigInt(Math.floor(Date.now() / 1000))) {
-          setLatestQuote(null);
+          const current = latestQuoteRef.current;
+          if (!current || BigInt(current.expiry) <= BigInt(Math.floor(Date.now() / 1000))) setLatestQuote(null);
           return;
         }
         const sizeUsd = Number(size) / 1e6;
@@ -567,44 +600,53 @@ export function BackstopProvider({children}: {children: ReactNode}) {
         const quoteWords = quoteResult.replace(/^0x/, '').match(/.{64}/g) || [];
         const minCollateralOut = quoteWords[3] ? BigInt(`0x${quoteWords[3]}`) : 0n;
         const expectedCollateral = Number(minCollateralOut) / 1e18;
-        setLatestQuote({
+        const nextQuote: Quote = {
           quoteId: event.topics[1],
           price: price.toString(),
           size: size.toString(),
           expiry: expiry.toString(),
           execute: execute !== 0n,
-          healthFactor: controlledPosition?.healthFactor || aavePosition?.healthFactor || 0,
-          collateralUsd: controlledPosition?.collateralUsd || aavePosition?.collateralUsd || 0,
-          debtUsd: controlledPosition?.debtUsd || aavePosition?.debtUsd || 0,
+          healthFactor: aavePositionRef.current?.healthFactor || 0,
+          collateralUsd: aavePositionRef.current?.collateralUsd || 0,
+          debtUsd: aavePositionRef.current?.debtUsd || 0,
           liquidationSizeUsd: sizeUsd,
           executionPriceUsd: expectedCollateral > 0 ? sizeUsd / expectedCollateral : 0,
           discountBps: Number(price),
           simulated: false,
-          source: mode === 'controlled' ? 'controlled' : 'live',
+          source: 'live',
           minCollateralOut: minCollateralOut.toString(),
           minCollateralOutFormatted: expectedCollateral.toFixed(4),
-        });
+        };
+        // Same registry event means the visible market state is unchanged.
+        // Returning the prior object prevents a full page re-render every poll.
+        setLatestQuote((previous) => previous && previous.quoteId === nextQuote.quoteId && previous.expiry === nextQuote.expiry && previous.healthFactor === nextQuote.healthFactor ? previous : nextQuote);
+        lastQuoteError.current = '';
         return;
       }
     } catch (error: unknown) {
-      addLog(`Quote fetch failed: ${errorMessage(error)}`, 'error');
+      const message = `Quote fetch failed: ${errorMessage(error)}`;
+      if (lastQuoteError.current !== message) {
+        lastQuoteError.current = message;
+        addLog(message, 'error');
+      }
     } finally {
+      quoteFetchInFlight.current = false;
       setQuoteLoading(false);
     }
-  }, [RPC_URL, QUOTE_REGISTRY_ADDRESS, addLog, mode, aavePosition]);
+  }, [RPC_URL, QUOTE_REGISTRY_ADDRESS, addLog, mode, controlledBorrowerAddress]);
 
   useEffect(() => {
     if (!embeddedWallet?.address) return;
     const interval = setInterval(() => {
       fetchBalances(embeddedWallet.address);
-    }, 10000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [embeddedWallet?.address, fetchBalances]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       fetchQuoteFromRegistry();
-    }, 5000);
+    }, 20000);
     return () => clearInterval(interval);
   }, [fetchQuoteFromRegistry]);
 
@@ -726,7 +768,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addPolicyLog('Transaction blocked: scoped signer not added', 'policy');
       return;
     }
-    const allowed = [AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, CONTROLLED_EXECUTOR, ALLOWED_ADDRESS, USDC_ADDRESS].filter(Boolean) as string[];
+    const allowed = [AQUA_REGISTRY, BACKSTOP_APP_ADDRESS, CONTROLLED_EXECUTOR, ALLOWED_ADDRESS, USDC_ADDRESS, CONTROLLED_USDC].filter(Boolean) as string[];
     const lowerTo = to.toLowerCase();
     const isAllowed = allowed.some((a) => a.toLowerCase() === lowerTo);
     if (enforceClientAllowlist && !isAllowed) {
@@ -745,6 +787,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Transaction succeeded: ' + hash.hash, 'success');
       addPolicyLog('Transaction allowed: ' + hash.hash.slice(0, 10) + '...', 'success');
       setTimeout(() => fetchBalances(embeddedWallet.address), 3000);
+      return hash;
     } catch (error: unknown) {
       const msg = errorMessage(error);
       if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('reject') || msg.toLowerCase().includes('deny')) {
@@ -761,7 +804,8 @@ export function BackstopProvider({children}: {children: ReactNode}) {
   }, [embeddedWallet, signerAdded, addLog, addPolicyLog, sendTransaction, fetchBalances]);
 
   const approveAqua = useCallback(async () => {
-    if (!embeddedWallet || !AQUA_REGISTRY || !USDC_ADDRESS) {
+    const asset = mode === 'controlled' ? CONTROLLED_USDC : USDC_ADDRESS;
+    if (!embeddedWallet || !AQUA_REGISTRY || !asset) {
       addLog('Missing addresses for approve', 'error');
       return;
     }
@@ -769,51 +813,63 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Sending approve(' + AQUA_REGISTRY.slice(0, 8) + '...) from ' + embeddedWallet.address.slice(0, 8) + '...', 'info');
       const amount = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
       const data = '0x' + ['095ea7b3', AQUA_REGISTRY.slice(2).padStart(64, '0'), amount.replace('0x', '')].join('');
-      await sendFromEmbeddedWallet(USDC_ADDRESS as Hex, data as Hex, '0x0');
+      const result = await sendFromEmbeddedWallet(asset as Hex, data as Hex, '0x0');
+      if (result) setAquaApproved(true);
     } catch (error: unknown) {
       addLog('Approve error: ' + errorMessage(error), 'error');
     }
-  }, [embeddedWallet, addLog, sendFromEmbeddedWallet]);
+  }, [embeddedWallet, addLog, sendFromEmbeddedWallet, mode]);
 
   const shipStrategy = useCallback(async (input?: StrategyInput) => {
-    if (!embeddedWallet || !AQUA_REGISTRY || !BACKSTOP_APP_ADDRESS || !USDC_ADDRESS || !WETH_ADDRESS) {
+    const controlled = mode === 'controlled';
+    const appAddress = controlled ? (process.env.NEXT_PUBLIC_CONTROLLED_BACKSTOP_APP_ADDRESS || '0x42698126b5E4884A99905484d484ECe7fbF18A6a') : BACKSTOP_APP_ADDRESS;
+    const tokenIn = controlled ? CONTROLLED_WETH : WETH_ADDRESS;
+    const tokenOut = controlled ? CONTROLLED_USDC : USDC_ADDRESS;
+    if (!embeddedWallet || !AQUA_REGISTRY || !appAddress || !tokenIn || !tokenOut) {
       addLog('Missing addresses for ship', 'error');
       return;
     }
     try {
-      addLog('Shipping strategy to ' + BACKSTOP_APP_ADDRESS.slice(0, 8) + '...', 'info');
+      addLog('Shipping strategy to ' + appAddress.slice(0, 8) + '...', 'info');
       const maker = embeddedWallet.address;
-      const tokenIn = WETH_ADDRESS;
-      const tokenOut = USDC_ADDRESS;
       const maxTradeUsd = Math.max(1, Math.floor(Number(input?.maxTrade || 500)));
       const minDiscountBps = Math.max(0, Math.floor(Number(input?.minDiscountBps || 100))).toString();
       const maxDiscountBps = Math.max(Number(minDiscountBps), Math.floor(Number(input?.maxDiscountBps || 300))).toString();
       const durationHours = Math.max(1, Math.floor(Number(input?.durationHours || 24)));
       const maxTrade = (maxTradeUsd * 1e6).toString();
       const expiry = Math.floor(Date.now() / 1000 + durationHours * 60 * 60).toString();
-      const salt = '0x0000000000000000000000000000000000000000000000000000000000000000';
+      const salt = `0x${crypto.getRandomValues(new Uint8Array(32)).reduce((hex, value) => hex + value.toString(16).padStart(2, '0'), '')}`;
+      // ABI words are hexadecimal. Do not pad decimal text directly: e.g.
+      // "500000000" would otherwise become 0x500000000 and produce a
+      // strategy hash that can never match the execution-time struct.
+      const abiWord = (value: string | number | bigint) => BigInt(value).toString(16).padStart(64, '0');
       const strategyBody = [
         maker.slice(2).padStart(64, '0'),
         tokenIn.slice(2).padStart(64, '0'),
         tokenOut.slice(2).padStart(64, '0'),
-        maxTrade.padStart(64, '0'),
-        minDiscountBps.padStart(64, '0'),
-        maxDiscountBps.padStart(64, '0'),
-        expiry.padStart(64, '0'),
+        abiWord(maxTrade),
+        abiWord(minDiscountBps),
+        abiWord(maxDiscountBps),
+        abiWord(expiry),
         salt.slice(2).padStart(64, '0'),
       ].join('');
-      const data = encodeAquaShip(BACKSTOP_APP_ADDRESS, strategyBody, [USDC_ADDRESS], [BigInt(maxTrade)]);
-      await sendFromEmbeddedWallet(AQUA_REGISTRY as Hex, data as Hex, '0x0');
+      // Aqua requires every token that may be pushed during settlement to be
+      // registered when the strategy is shipped. btWETH starts at zero, while
+      // btUSDC provides the maker's 500-unit execution capacity.
+      const data = encodeAquaShip(appAddress, strategyBody, [tokenOut, tokenIn], [BigInt(maxTrade), 0n]);
+      const result = await sendFromEmbeddedWallet(AQUA_REGISTRY as Hex, data, '0x0');
+      if (!result) return;
       const next: Strategy = {
-        appAddress: BACKSTOP_APP_ADDRESS,
+        appAddress,
         maker,
         tokenIn,
         tokenOut,
         maxTrade: (parseFloat(maxTrade) / 1e6).toFixed(0),
         minDiscountBps,
         maxDiscountBps,
-        expiry: new Date(parseInt(expiry) * 1000).toISOString().split('T')[0],
-        salt: '0x0',
+        // Store the exact chain value; the execution hash must use it.
+        expiry,
+        salt,
       };
       setStrategy(next);
       persistStrategyToSession(next);
@@ -824,13 +880,9 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     } catch (error: unknown) {
       addLog('Ship error: ' + errorMessage(error), 'error');
     }
-  }, [embeddedWallet, addLog, sendFromEmbeddedWallet, encodeAquaShip]);
+  }, [embeddedWallet, addLog, sendFromEmbeddedWallet, mode]);
 
   const executeControlledLiquidation = useCallback(async () => {
-    if (CONTROLLED_STRATEGY_CAPACITY_CONSUMED) {
-      addLog('Controlled execution blocked: the shipped 500 btUSDC strategy capacity has already been consumed', 'policy');
-      return;
-    }
     if (mode !== 'controlled' || !latestQuote?.quoteId || !latestQuote.minCollateralOut) {
       addLog('No valid controlled CRE quote is available', 'error');
       return;
@@ -839,25 +891,28 @@ export function BackstopProvider({children}: {children: ReactNode}) {
       addLog('Connect the authorized wallet before executing', 'policy');
       return;
     }
-    const strategy = {
-      maker: '0x659f1ddf3Afa31029B990D2202Df8B2094eE012E' as Hex,
-      tokenIn: CONTROLLED_WETH as Hex,
-      tokenOut: '0xFd080b70bAefD6Bb19906c107A7240C4e5C2dcca' as Hex,
-      maxTrade: 500_000_000n,
-      minDiscountBps: 100,
-      maxDiscountBps: 500,
-      expiry: CONTROLLED_STRATEGY_EXPIRY,
-      salt: `0x${'0'.repeat(63)}1` as Hex,
+    if (!strategy || strategy.appAddress.toLowerCase() !== (process.env.NEXT_PUBLIC_CONTROLLED_BACKSTOP_APP_ADDRESS || '0x42698126b5E4884A99905484d484ECe7fbF18A6a').toLowerCase() || strategy.maker.toLowerCase() !== embeddedWallet.address.toLowerCase()) {
+      addLog('Authorize a controlled btUSDC strategy from this embedded wallet before executing.', 'policy');
+      return;
+    }
+    const executionStrategy = {
+      maker: strategy.maker as Hex,
+      tokenIn: strategy.tokenIn as Hex,
+      tokenOut: strategy.tokenOut as Hex,
+      maxTrade: BigInt(Math.round(Number(strategy.maxTrade) * 1e6)),
+      minDiscountBps: Number(strategy.minDiscountBps),
+      maxDiscountBps: Number(strategy.maxDiscountBps),
+      expiry: BigInt(strategy.expiry),
+      salt: strategy.salt.padEnd(66, '0') as Hex,
     };
-    const calculatedHash = keccak256(encodeAbiParameters(parseAbiParameters('address, address, address, uint256, uint16, uint16, uint64, bytes32'), [strategy.maker, strategy.tokenIn, strategy.tokenOut, strategy.maxTrade, strategy.minDiscountBps, strategy.maxDiscountBps, strategy.expiry, strategy.salt]));
-    if (calculatedHash.toLowerCase() !== CONTROLLED_STRATEGY_HASH) throw new Error('Controlled strategy data does not match the shipped Aqua strategy');
+    const calculatedHash = keccak256(encodeAbiParameters(parseAbiParameters('address, address, address, uint256, uint16, uint16, uint64, bytes32'), [executionStrategy.maker, executionStrategy.tokenIn, executionStrategy.tokenOut, executionStrategy.maxTrade, executionStrategy.minDiscountBps, executionStrategy.maxDiscountBps, executionStrategy.expiry, executionStrategy.salt]));
     const data = encodeFunctionData({
       abi: [{type: 'function', name: 'execute', stateMutability: 'nonpayable', inputs: [
         {name: 'strategyHash', type: 'bytes32'},
         {name: 'strategy', type: 'tuple', components: [{name: 'maker', type: 'address'}, {name: 'tokenIn', type: 'address'}, {name: 'tokenOut', type: 'address'}, {name: 'maxTrade', type: 'uint256'}, {name: 'minDiscountBps', type: 'uint16'}, {name: 'maxDiscountBps', type: 'uint16'}, {name: 'expiry', type: 'uint64'}, {name: 'salt', type: 'bytes32'}]},
         {name: 'quoteId', type: 'bytes32'}, {name: 'borrower', type: 'address'}, {name: 'expectedWethOut', type: 'uint256'},
       ], outputs: [{type: 'uint256'}]}],
-      functionName: 'execute', args: [CONTROLLED_STRATEGY_HASH as Hex, strategy, latestQuote.quoteId as Hex, CONTROLLED_BORROWER as Hex, BigInt(latestQuote.minCollateralOut)],
+      functionName: 'execute', args: [calculatedHash, executionStrategy, latestQuote.quoteId as Hex, controlledBorrowerAddress as Hex, BigInt(latestQuote.minCollateralOut)],
     });
     setSimulating(true);
     addLog(`Executing controlled quote ${latestQuote.quoteId.slice(0, 10)}…`, 'info');
@@ -870,7 +925,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     } finally {
       setSimulating(false);
     }
-  }, [mode, latestQuote, embeddedWallet, signerAdded, addLog, addPolicyLog, sendTransaction]);
+  }, [mode, latestQuote, embeddedWallet, signerAdded, strategy, controlledBorrowerAddress, addLog, addPolicyLog, sendTransaction]);
 
   const testWithinPolicyTx = useCallback(async () => {
     if (!embeddedWallet || !USDC_ADDRESS) {
@@ -985,6 +1040,10 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     liveOpportunityError,
     borrowerAddress,
     setBorrowerAddress,
+    controlledBorrowerAddress,
+    setControlledBorrowerAddress,
+    controlledQuoteMatchesSelection: mode === 'controlled' && !!latestQuote && latestQuote.source === 'controlled',
+    controlledPositionSettled: mode === 'controlled' && controlledBorrowerAddress.toLowerCase() === CONTROLLED_BORROWER.toLowerCase() && BigInt(aavePosition?.debtAmount || '0') > 0n && BigInt(aavePosition?.debtAmount || '0') <= 500_000_000n,
     scanLivePosition,
     addLog,
     addPolicyLog,
@@ -994,7 +1053,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     approveAqua,
     shipStrategy,
     executeControlledLiquidation,
-    controlledStrategyCapacityAvailable: !CONTROLLED_STRATEGY_CAPACITY_CONSUMED,
+    controlledStrategyCapacityAvailable: !!strategy && strategy.appAddress.toLowerCase() === (process.env.NEXT_PUBLIC_CONTROLLED_BACKSTOP_APP_ADDRESS || '0x42698126b5E4884A99905484d484ECe7fbF18A6a').toLowerCase() && strategy.maker.toLowerCase() === embeddedWallet?.address?.toLowerCase(),
     testWithinPolicyTx,
     testOutsidePolicyTx,
     triggerExpiredQuote,
@@ -1032,6 +1091,7 @@ export function BackstopProvider({children}: {children: ReactNode}) {
     liveOpportunityLoading,
     liveOpportunityError,
     borrowerAddress,
+    controlledBorrowerAddress,
     setBorrowerAddress,
     addLog,
     addPolicyLog,
